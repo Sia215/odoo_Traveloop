@@ -1,0 +1,23 @@
+import { useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'
+import { supabase } from '../lib/supabaseClient'
+
+export default function ProtectedRoute({ children }) {
+  const [status, setStatus] = useState('loading')
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setStatus(session ? 'ok' : 'unauth')
+    })
+  }, [])
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  return status === 'ok' ? children : <Navigate to="/login" replace />
+}
