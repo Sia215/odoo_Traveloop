@@ -10,28 +10,35 @@ export function UserProvider({ children }) {
   const [userLoading, setUserLoading] = useState(true)
 
   const refreshUser = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) { 
-      setUser(null); 
-      setProfile(null);
-      setUserLoading(false); 
-      return 
+    setUserLoading(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        setUser(null)
+        setProfile(null)
+        return
+      }
+
+      // Single fetch — /api/auth/me returns full profile including role
+      const res = await fetch(`${API}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const data = await res.json()
+      if (data.success && data.user) {
+        // Ensure role defaults to 'user' if null/missing
+        const userWithRole = { ...data.user, role: data.user.role || 'user' }
+        setUser(userWithRole)
+        setProfile(userWithRole)
+      } else {
+        setUser(null)
+        setProfile(null)
+      }
+    } catch {
+      setUser(null)
+      setProfile(null)
+    } finally {
+      setUserLoading(false)
     }
-    const res = await fetch(`${API}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
-    })
-    const data = await res.json()
-    if (data.success) {
-      setUser(data.user)
-      // Also fetch profile data for admin checks
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', data.user.id)
-        .single()
-      setProfile(profileData)
-    }
-    setUserLoading(false)
   }, [])
 
   useEffect(() => { refreshUser() }, [refreshUser])

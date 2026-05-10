@@ -17,7 +17,10 @@ import AdminDashboard from './pages/AdminDashboard'
 import AdminUsers from './pages/AdminUsers'
 import AdminTrips from './pages/AdminTrips'
 import AdminCities from './pages/AdminCities'
+import AdminInvoice from './pages/AdminInvoice'
 import ActivitySearch from './pages/ActivitySearch'
+import ViewItinerary from './pages/ViewItinerary'
+import Invoice from './pages/Invoice'
 
 export default function App() {
   return (
@@ -31,18 +34,21 @@ export default function App() {
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/create-trip" element={<ProtectedRoute><CreateTrip /></ProtectedRoute>} />
           <Route path="/itinerary-builder/:tripId" element={<ProtectedRoute><ItineraryBuilder /></ProtectedRoute>} />
+          <Route path="/itinerary/:tripId" element={<ProtectedRoute><ViewItinerary /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/my-trips" element={<ProtectedRoute><MyTrips /></ProtectedRoute>} />
           <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
           <Route path="/packing" element={<ProtectedRoute><PackingChecklist /></ProtectedRoute>} />
           <Route path="/trips" element={<ProtectedRoute><MyTrips /></ProtectedRoute>} />
           <Route path="/activities" element={<ProtectedRoute><ActivitySearch /></ProtectedRoute>} />
+          <Route path="/invoice/:tripId" element={<ProtectedRoute><Invoice /></ProtectedRoute>} />
 
           {/* Admin Routes */}
           <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
           <Route path="/admin/users" element={<AdminRoute><AdminUsers /></AdminRoute>} />
           <Route path="/admin/trips" element={<AdminRoute><AdminTrips /></AdminRoute>} />
           <Route path="/admin/cities" element={<AdminRoute><AdminCities /></AdminRoute>} />
+          <Route path="/admin/invoices" element={<AdminRoute><AdminInvoice /></AdminRoute>} />
         </Routes>
       </UserProvider>
     </BrowserRouter>

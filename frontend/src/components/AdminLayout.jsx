@@ -11,7 +11,8 @@ export default function AdminLayout({ children }) {
     { label: 'Overview', path: '/admin' },
     { label: 'Users', path: '/admin/users' },
     { label: 'Trips', path: '/admin/trips' },
-    { label: 'Cities', path: '/admin/cities' }
+    { label: 'Cities', path: '/admin/cities' },
+    { label: 'Invoices', path: '/admin/invoices' },
   ]
 
   return (

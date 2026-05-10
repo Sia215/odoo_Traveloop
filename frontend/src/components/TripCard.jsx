@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Eye, Pencil, Trash2, MapPin, Calendar } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Eye, Pencil, Trash2, MapPin, Calendar, Receipt } from 'lucide-react'
 import { fetchPlacePhoto } from '../lib/unsplash'
 
 const STATUS_STYLES = {
@@ -23,6 +24,7 @@ function formatDate(d) {
 }
 
 export default function TripCard({ id, name, start_date, end_date, status, cover_photo, destination_count, onView, onEdit, onDelete, index = 0 }) {
+  const navigate = useNavigate()
   const [photo, setPhoto] = useState(cover_photo || null)
 
   useEffect(() => {
@@ -72,12 +74,20 @@ export default function TripCard({ id, name, start_date, end_date, status, cover
             <MapPin size={12} />
             <span>{destination_count ?? 0} destination{destination_count !== 1 ? 's' : ''}</span>
           </div>
-          <button
-            onClick={() => onView?.(id)}
-            className="text-xs font-semibold text-white bg-primary hover:bg-teal-700 px-3 py-1.5 rounded-lg transition"
-          >
-            View
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => navigate(`/invoice/${id}`)}
+              className="text-xs font-semibold text-slate-500 border border-slate-200 hover:border-primary hover:text-primary px-2.5 py-1.5 rounded-lg transition flex items-center gap-1"
+            >
+              <Receipt size={11} /> Invoice
+            </button>
+            <button
+              onClick={() => onView?.(id)}
+              className="text-xs font-semibold text-white bg-primary hover:bg-teal-700 px-3 py-1.5 rounded-lg transition"
+            >
+              View
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -18,7 +18,7 @@ export default function AdminNavbar({ activeTab, onTabChange }) {
 
   const handleExit = () => {
     if (confirmExit) {
-      navigate('/dashboard')
+      navigate('/dashboard?exit=1')
     } else {
       setConfirmExit(true)
       setTimeout(() => setConfirmExit(false), 3000)

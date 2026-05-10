@@ -1,659 +1,586 @@
-import { useState, useEffect, useContext } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Users,
-  MapPin,
-  Activity,
-  TrendingUp,
-  Search,
-  Filter,
-  SortAsc,
-  LogOut,
-  User,
-  MoreVertical,
-  Eye,
-  UserX,
-  Trash2
-} from 'lucide-react'
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar
+  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import AdminNavbar from '../components/AdminNavbar'
+import StatCard from '../components/StatCard'
+import EmptyState from '../components/EmptyState'
+import { useToast } from '../hooks/useToast'
+import { useUser } from '../context/UserContext'
 import { supabase } from '../lib/supabaseClient'
-import { UserContext } from '../context/UserContext'
-import toast from 'react-hot-toast'
+import Toast from '../components/Toast'
 
-const TABS = [
-  { id: 'users', label: 'Manage Users', icon: Users },
-  { id: 'cities', label: 'Popular Cities', icon: MapPin },
-  { id: 'activities', label: 'Popular Activities', icon: Activity },
-  { id: 'analytics', label: 'User Trends and Analytics', icon: TrendingUp }
-]
+const API = import.meta.env.VITE_API_URL
+const PIE_COLORS = ['#0D9488', '#F97316', '#94A3B8']
 
-const TAB_DESCRIPTIONS = {
-  users: {
-    title: 'Manage User Section:',
-    description: 'View and manage all registered users. Monitor user activity, update roles, and handle account suspensions. Access detailed user statistics and trip information.'
-  },
-  cities: {
-    title: 'Popular Cities:',
-    description: 'Track the most popular destinations in Traveloop. View trip counts, average budgets, and duration statistics for each city. Monitor trending destinations.'
-  },
-  activities: {
-    title: 'Popular Activities:',
-    description: 'Analyze the most booked activities across all trips. See usage statistics by category, average costs, and top cities for each activity type.'
-  },
-  analytics: {
-    title: 'User Trends and Analytics:',
-    description: 'Comprehensive analytics dashboard showing user growth, daily active users, trip creation patterns, and key performance metrics for the platform.'
-  }
+const getToken = async () => {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session.access_token
+}
+
+function Skeleton({ className }) {
+  return <div className={`animate-pulse bg-slate-200 rounded-xl ${className}`} />
 }
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('users')
-  const [searchQuery, setSearchQuery] = useState('')
+  const { user } = useUser()
+  const { toasts, showToast, removeToast } = useToast()
+
+  const [activeTab, setActiveTab] = useState('overview')
+  const [stats, setStats] = useState(null)
   const [users, setUsers] = useState([])
   const [analytics, setAnalytics] = useState(null)
   const [cities, setCities] = useState([])
-  const [activities, setActivities] = useState([])
-  const [loading, setLoading] = useState(true)
-  const { user, profile, setUser, setProfile } = useContext(UserContext)
-  const navigate = useNavigate()
+  const [isLoading, setIsLoading] = useState(true)
+  const [userSearch, setUserSearch] = useState('')
+  const [userPage, setUserPage] = useState(1)
+  const [totalUsers, setTotalUsers] = useState(0)
+  const [isSaving, setIsSaving] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(null)
 
-  useEffect(() => {
-    loadData()
-  }, [activeTab])
+  const usersLoadedRef = useRef(false)
+  const analyticsLoadedRef = useRef(false)
+  const searchTimerRef = useRef(null)
+  const pollRef = useRef(null)
 
-  const loadData = async () => {
-    setLoading(true)
-    try {
-      switch (activeTab) {
-        case 'users':
-          await loadUsers()
-          break
-        case 'cities':
-          await loadCities()
-          break
-        case 'activities':
-          await loadActivities()
-          break
-        case 'analytics':
-          await loadAnalytics()
-          break
-      }
-    } catch (error) {
-      console.error('Error loading data:', error)
-      toast.error('Failed to load data')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const loadUsers = async () => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .limit(50)
-
-    if (error) throw error
-    setUsers(data || [])
-  }
-
-  const loadCities = async () => {
-    // Mock data - replace with actual API call
-    setCities([
-      { rank: 1, name: 'Paris', country: 'France', timesAdded: 450, avgDuration: 7, avgBudget: 2500, trend: 'up' },
-      { rank: 2, name: 'Tokyo', country: 'Japan', timesAdded: 380, avgDuration: 10, avgBudget: 3200, trend: 'up' },
-      { rank: 3, name: 'New York', country: 'USA', timesAdded: 320, avgDuration: 8, avgBudget: 2800, trend: 'down' }
-    ])
-  }
-
-  const loadActivities = async () => {
-    // Mock data - replace with actual API call
-    setActivities([
-      { rank: 1, name: 'Eiffel Tower Visit', category: 'Sightseeing', timesUsed: 520, avgCost: 85, topCity: 'Paris', trend: 'up' },
-      { rank: 2, name: 'Central Park Walk', category: 'Sightseeing', timesUsed: 480, avgCost: 0, topCity: 'New York', trend: 'stable' },
-      { rank: 3, name: 'Sushi Dinner', category: 'Food', timesUsed: 450, avgCost: 120, topCity: 'Tokyo', trend: 'up' }
-    ])
-  }
-
-  const loadAnalytics = async () => {
-    // Mock data - replace with actual API call
-    setAnalytics({
-      totals: { users: 1250, trips: 3400, activities: 8900 },
-      monthlyGrowth: [
-        { month: 'Jan', users: 120 },
-        { month: 'Feb', users: 180 },
-        { month: 'Mar', users: 220 },
-        { month: 'Apr', users: 280 },
-        { month: 'May', users: 350 },
-        { month: 'Jun', users: 420 }
-      ],
-      dauLast30Days: Array.from({ length: 30 }, (_, i) => ({
-        date: `2024-01-${String(i + 1).padStart(2, '0')}`,
-        users: Math.floor(Math.random() * 200) + 50
-      })),
-      tripsPerMonth: [
-        { month: 'Jan', trips: 450 },
-        { month: 'Feb', trips: 520 },
-        { month: 'Mar', trips: 680 },
-        { month: 'Apr', trips: 750 },
-        { month: 'May', trips: 820 },
-        { month: 'Jun', trips: 900 }
-      ],
-      peakStats: {
-        avgTripsPerUser: 2.7,
-        avgActivitiesPerTrip: 8.5,
-        mostActiveDay: 'Saturday',
-        peakUsageHour: '14:00'
-      }
+  // ── fetch helpers ──────────────────────────────────────────
+  const fetchStats = useCallback(async () => {
+    const token = await getToken()
+    const res = await fetch(`${API}/api/admin/stats`, {
+      headers: { Authorization: `Bearer ${token}` },
     })
-  }
+    const data = await res.json()
+    setStats(data)
+  }, [])
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
-    setProfile(null)
-    navigate('/admin/login')
-  }
+  const fetchCities = useCallback(async () => {
+    const token = await getToken()
+    const res = await fetch(`${API}/api/admin/cities/popular`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await res.json()
+    setCities((data.cities || []).map(c => ({ ...c, popularity: c.count })))
+  }, [])
 
-  const renderTabContent = () => {
-    if (loading) {
-      return (
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      )
+  const [lastUpdated, setLastUpdated] = useState(null)
+
+  const fetchUsers = useCallback(async (search = '', page = 1) => {
+    const token = await getToken()
+    const res = await fetch(
+      `${API}/api/admin/users?search=${encodeURIComponent(search)}&page=${page}&limit=10`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    )
+    const data = await res.json()
+    setUsers(data.users || [])
+    setTotalUsers(data.total || 0)
+    setLastUpdated(new Date())
+  }, [])
+
+  const fetchAnalytics = useCallback(async () => {
+    const token = await getToken()
+    const res = await fetch(`${API}/api/admin/analytics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const data = await res.json()
+    setAnalytics(data)
+  }, [])
+
+  // ── on mount: fetch stats + cities + start live poll ──────
+  useEffect(() => {
+    Promise.all([fetchStats(), fetchCities()]).finally(() => setIsLoading(false))
+
+    // Poll stats every 30s for live counts
+    pollRef.current = setInterval(() => {
+      fetchStats()
+      fetchCities()
+    }, 30000)
+    return () => clearInterval(pollRef.current)
+  }, [fetchStats, fetchCities])
+
+  // ── tab change: always re-fetch users/analytics fresh ─────
+  useEffect(() => {
+    if (activeTab === 'users') {
+      usersLoadedRef.current = true
+      fetchUsers(userSearch, userPage)
     }
+    if (activeTab === 'analytics') {
+      analyticsLoadedRef.current = true
+      fetchAnalytics()
+    }
+  }, [activeTab]) // eslint-disable-line
 
-    switch (activeTab) {
-      case 'users':
-        return <UsersTab users={users} onRefresh={loadUsers} />
-      case 'cities':
-        return <CitiesTab cities={cities} />
-      case 'activities':
-        return <ActivitiesTab activities={activities} />
-      case 'analytics':
-        return <AnalyticsTab analytics={analytics} />
-      default:
-        return null
+  // ── user search debounce ───────────────────────────────────
+  useEffect(() => {
+    clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      setUserPage(1)
+      fetchUsers(userSearch, 1)
+    }, 400)
+    return () => clearTimeout(searchTimerRef.current)
+  }, [userSearch, fetchUsers])
+
+  // ── pagination ─────────────────────────────────────────────
+  useEffect(() => {
+    if (usersLoadedRef.current) fetchUsers(userSearch, userPage)
+  }, [userPage]) // eslint-disable-line
+
+  // ── refresh all ───────────────────────────────────────────
+  const handleRefresh = async () => {
+    setIsLoading(true)
+    const all = [fetchStats(), fetchCities()]
+    if (activeTab === 'users') all.push(fetchUsers(userSearch, userPage))
+    if (activeTab === 'analytics') all.push(fetchAnalytics())
+    await Promise.all(all)
+    setIsLoading(false)
+    showToast('Data refreshed', 'success')
+  }
+
+  // ── remove user ────────────────────────────────────────────
+  const handleRemoveUser = async (u) => {
+    setIsSaving(true)
+    try {
+      const token = await getToken()
+      const res = await fetch(`${API}/api/admin/users/${u.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) throw new Error((await res.json()).error)
+      setUsers(prev => prev.filter(x => x.id !== u.id))
+      setTotalUsers(prev => prev - 1)
+      showToast(`${u.first_name} removed`, 'success')
+    } catch (err) {
+      showToast(err.message || 'Failed to remove user', 'error')
+    } finally {
+      setIsSaving(false)
+      setConfirmRemove(null)
     }
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <h1 className="text-xl font-bold text-gray-900">Traveloop</h1>
-            <div className="flex items-center space-x-4">
-              <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-                <User className="w-4 h-4 text-gray-600" />
-              </div>
-              <button
-                onClick={handleLogout}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
+  const totalPages = Math.ceil(totalUsers / 10)
+
+  // ── loading skeleton ───────────────────────────────────────
+  if (isLoading) return (
+    <div className="min-h-screen" style={{ background: '#F1F5F9' }}>
+      <AdminNavbar activeTab={activeTab} onTabChange={setActiveTab} />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}
         </div>
-      </header>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Search and Controls */}
-        <div className="mb-6">
-          <div className="flex flex-col sm:flex-row gap-4 mb-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">
-                <Filter className="w-4 h-4" />
-                Filter
-              </button>
-              <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-md hover:bg-gray-50">
-                <SortAsc className="w-4 h-4" />
-                Sort
-              </button>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex flex-wrap gap-2">
-            {TABS.map((tab) => {
-              const Icon = tab.icon
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    activeTab === tab.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {tab.label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Main Content */}
-          <div className="lg:col-span-3">
-            {renderTabContent()}
-          </div>
-
-          {/* Info Panel */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow p-6 sticky top-6">
-              <h3 className="font-semibold text-gray-900 mb-2">
-                {TAB_DESCRIPTIONS[activeTab].title}
-              </h3>
-              <p className="text-sm text-gray-600">
-                {TAB_DESCRIPTIONS[activeTab].description}
-              </p>
-            </div>
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Skeleton className="h-72" />
+          <Skeleton className="h-72" />
         </div>
       </div>
     </div>
   )
-}
 
-// Tab Components
-function UsersTab({ users, onRefresh }) {
-  const tripCategories = [
-    { name: 'Adventure', value: 60, color: '#3b82f6' },
-    { name: 'Budget', value: 20, color: '#6b7280' },
-    { name: 'Luxury', value: 10, color: '#22c55e' },
-    { name: 'Cultural', value: 10, color: '#f59e0b' }
-  ]
+  // ── chart guard ────────────────────────────────────────────
+  const ChartCard = ({ title, children, data, className = '' }) => (
+    <div className={`bg-white rounded-xl p-5 shadow-sm ${className}`}>
+      {title && <h3 className="text-sm font-semibold text-slate-700 mb-4">{title}</h3>}
+      {!data || data.length === 0
+        ? <EmptyState message="No data available yet" />
+        : children}
+    </div>
+  )
 
-  const userGrowth = [
-    { month: 'Jan', users: 120 },
-    { month: 'Feb', users: 180 },
-    { month: 'Mar', users: 220 },
-    { month: 'Apr', users: 280 },
-    { month: 'May', users: 350 },
-    { month: 'Jun', users: 420 }
-  ]
-
-  const topActivities = [
-    { name: 'Sightseeing', count: 450 },
-    { name: 'Food Tours', count: 380 },
-    { name: 'Adventure', count: 320 },
-    { name: 'Shopping', count: 290 },
-    { name: 'Transport', count: 270 }
-  ]
-
-  return (
+  // ══════════════════════════════════════════════════════════
+  // TAB: OVERVIEW
+  // ══════════════════════════════════════════════════════════
+  const OverviewTab = () => (
     <div className="space-y-6">
-      {/* Top Section - User List and Pie Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* User List */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">Users</h3>
-          </div>
-          <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
-            {users.map((user) => (
-              <div key={user.id} className="px-6 py-4 flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
-                    <User className="w-4 h-4 text-gray-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{user.full_name || 'No name'}</p>
-                    <p className="text-sm text-gray-500">{user.email}</p>
-                  </div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    user.role === 'admin' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
-                  }`}>
-                    {user.role}
-                  </span>
-                  <span className="text-sm text-gray-500">0 trips</span>
-                  <button className="text-gray-400 hover:text-gray-600">
-                    <MoreVertical className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Pie Chart */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Trip Categories</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={tripCategories}
-                cx="50%"
-                cy="50%"
-                innerRadius={40}
-                outerRadius={80}
-                paddingAngle={5}
-                dataKey="value"
-              >
-                {tripCategories.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="mt-4 space-y-1">
-            {tripCategories.map((category) => (
-              <div key={category.name} className="flex items-center justify-between text-sm">
-                <div className="flex items-center">
-                  <div
-                    className="w-3 h-3 rounded-full mr-2"
-                    style={{ backgroundColor: category.color }}
-                  ></div>
-                  <span>{category.name}</span>
-                </div>
-                <span className="font-medium">{category.value}%</span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Row 1 — stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Users"      value={stats?.totalUsers      || 0} icon="👥" color="teal"   />
+        <StatCard label="Total Trips"      value={stats?.totalTrips      || 0} icon="✈️" color="orange" />
+        <StatCard label="Total Cities"     value={stats?.totalCities     || 0} icon="🏙" color="blue"   />
+        <StatCard label="Total Activities" value={stats?.totalActivities || 0} icon="⭐" color="purple" />
       </div>
 
-      {/* Middle Section - User Growth Line Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">User Growth Over Time</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={userGrowth}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" />
-            <YAxis />
-            <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="users"
-              stroke="#f43f5e"
-              strokeWidth={2}
-              dot={{ fill: '#f43f5e', strokeWidth: 2, r: 4 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+      {/* Row 2 — status cards */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Ongoing',   value: stats?.ongoingTrips,   dot: 'bg-green-400' },
+          { label: 'Upcoming',  value: stats?.upcomingTrips,  dot: 'bg-teal-400'  },
+          { label: 'Completed', value: stats?.completedTrips, dot: 'bg-slate-400' },
+        ].map(s => (
+          <div key={s.label} className="bg-white rounded-xl p-4 shadow-sm flex items-center gap-3">
+            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${s.dot}`} />
+            <div>
+              <div className="text-xl font-bold text-[#1E293B]">{s.value ?? 0}</div>
+              <div className="text-xs text-slate-500">{s.label}</div>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Bottom Section - Bar Chart and Stats */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Bar Chart */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Top Activities</h3>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={topActivities}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
+      {/* Row 3 — charts */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+        {/* Bar chart — top cities */}
+        <ChartCard title="Top Cities" data={cities} className="md:col-span-3">
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={cities} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
               <Tooltip />
-              <Bar dataKey="count" fill="#f97316" />
+              <Bar dataKey="popularity" fill="#0D9488" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
-        </div>
+        </ChartCard>
 
-        {/* Stats Table */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Platform Statistics</h3>
-          <div className="space-y-3">
-            <div className="flex justify-between py-2 border-b border-gray-100">
-              <span className="text-sm text-gray-600">Total Users</span>
-              <span className="text-sm font-medium">1,250</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-gray-100">
-              <span className="text-sm text-gray-600">Active Trips</span>
-              <span className="text-sm font-medium">340</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-gray-100">
-              <span className="text-sm text-gray-600">Avg Trip Duration</span>
-              <span className="text-sm font-medium">7.2 days</span>
-            </div>
-            <div className="flex justify-between py-2 border-b border-gray-100">
-              <span className="text-sm text-gray-600">Most Popular City</span>
-              <span className="text-sm font-medium">Paris</span>
-            </div>
-            <div className="flex justify-between py-2">
-              <span className="text-sm text-gray-600">Conversion Rate</span>
-              <span className="text-sm font-medium">68%</span>
-            </div>
-          </div>
+        {/* Pie chart — trip status */}
+        <ChartCard
+          title="Trip Status"
+          data={analytics?.tripStatus || stats ? [
+            { status: 'Ongoing',   count: stats?.ongoingTrips   || 0 },
+            { status: 'Upcoming',  count: stats?.upcomingTrips  || 0 },
+            { status: 'Completed', count: stats?.completedTrips || 0 },
+          ] : []}
+          className="md:col-span-2"
+        >
+          {(() => {
+            const pieData = [
+              { status: 'Ongoing',   count: stats?.ongoingTrips   || 0 },
+              { status: 'Upcoming',  count: stats?.upcomingTrips  || 0 },
+              { status: 'Completed', count: stats?.completedTrips || 0 },
+            ]
+            return (
+              <>
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie data={pieData} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={70}>
+                      {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex justify-center gap-4 mt-2 flex-wrap">
+                  {pieData.map((d, i) => (
+                    <div key={d.status} className="flex items-center gap-1.5 text-xs text-slate-500">
+                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: PIE_COLORS[i] }} />
+                      {d.status}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )
+          })()}
+        </ChartCard>
+      </div>
+
+      {/* Row 4 — recent users */}
+      <div className="bg-white rounded-xl shadow-sm p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-slate-700">Recent Users</h3>
+          <button
+            onClick={() => setActiveTab('users')}
+            className="text-xs font-semibold text-[#0D9488] hover:underline"
+          >
+            View All →
+          </button>
         </div>
+        <RecentUsersTable />
       </div>
     </div>
   )
-}
 
-function CitiesTab({ cities }) {
-  return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Popular Cities</h3>
-      </div>
+  // ── recent users (last 5, no pagination) ──────────────────
+  const RecentUsersTable = () => {
+    const [recentUsers, setRecentUsers] = useState([])
+    useEffect(() => {
+      getToken().then(token =>
+        fetch(`${API}/api/admin/users?page=1&limit=5`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then(r => r.json()).then(d => setRecentUsers(d.users || []))
+      )
+    }, [])
+    if (!recentUsers.length) return <EmptyState message="No users yet" />
+    return (
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">City</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Country</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Times Added</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Duration</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Budget</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trend</th>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs text-slate-400 border-b border-slate-100">
+              {['Name', 'Email', 'City', 'Joined'].map(h => (
+                <th key={h} className="text-left pb-2 font-medium">{h}</th>
+              ))}
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {cities.map((city) => (
-              <tr key={city.rank}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{city.rank}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{city.name}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{city.country}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{city.timesAdded}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{city.avgDuration} days</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${city.avgBudget}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    city.trend === 'up' ? 'bg-green-100 text-green-800' :
-                    city.trend === 'down' ? 'bg-red-100 text-red-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {city.trend === 'up' ? '↑' : city.trend === 'down' ? '↓' : '→'}
-                  </span>
-                </td>
+          <tbody>
+            {recentUsers.map(u => (
+              <tr key={u.id} className="border-b border-slate-50 last:border-0">
+                <td className="py-2.5 font-medium text-[#1E293B]">{u.first_name} {u.last_name}</td>
+                <td className="py-2.5 text-slate-500">{u.email}</td>
+                <td className="py-2.5 text-slate-500">{u.city || '—'}</td>
+                <td className="py-2.5 text-slate-400">{new Date(u.created_at).toLocaleDateString('en-IN')}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </div>
-  )
-}
+    )
+  }
 
-function ActivitiesTab({ activities }) {
-  return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Popular Activities</h3>
+  // ══════════════════════════════════════════════════════════
+  // TAB: MANAGE USERS
+  // ══════════════════════════════════════════════════════════
+  const UsersTab = () => (
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <input
+            type="text"
+            placeholder="Search by name or email…"
+            value={userSearch}
+            onChange={e => setUserSearch(e.target.value)}
+            className="w-64 border border-slate-200 rounded-xl px-4 py-2 text-sm outline-none
+              focus:ring-2 focus:ring-[#0D9488]/30 focus:border-[#0D9488]"
+          />
+          <span className="text-xs text-slate-400">
+            {totalUsers} user{totalUsers !== 1 ? 's' : ''} total
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="flex items-center gap-1.5 text-xs text-green-500 font-medium">
+            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            Live
+          </span>
+          {lastUpdated && (
+            <span className="text-xs text-slate-400">
+              Updated {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={() => fetchUsers(userSearch, userPage)}
+            className="text-xs font-semibold text-[#0D9488] border border-[#0D9488] px-3 py-1.5 rounded-lg hover:bg-[#0D9488] hover:text-white transition"
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rank</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Activity</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Times Used</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Cost</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Top City</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trend</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {activities.map((activity) => (
-              <tr key={activity.rank}>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{activity.rank}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{activity.name}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{activity.category}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{activity.timesUsed}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${activity.avgCost}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{activity.topCity}</td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                    activity.trend === 'up' ? 'bg-green-100 text-green-800' :
-                    activity.trend === 'down' ? 'bg-red-100 text-red-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
-                    {activity.trend === 'up' ? '↑' : activity.trend === 'down' ? '↓' : '→'}
-                  </span>
-                </td>
+
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr className="text-xs text-slate-400">
+                {['#', 'Name', 'Email', 'City', 'Joined', 'Action'].map(h => (
+                  <th key={h} className="text-left px-4 py-3 font-medium">{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {users.length === 0 ? (
+                <tr><td colSpan={6}><EmptyState message="No users found" /></td></tr>
+              ) : users.map((u, i) => {
+                const initials = `${u.first_name?.[0] || ''}${u.last_name?.[0] || ''}`.toUpperCase()
+                const isConfirming = confirmRemove === u.id
+                return (
+                  <tr key={u.id} className="border-t border-slate-50 hover:bg-slate-50/50">
+                    <td className="px-4 py-3 text-slate-400">{(userPage - 1) * 10 + i + 1}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                          style={{ background: '#0D9488' }}
+                        >
+                          {initials || '?'}
+                        </div>
+                        <span className="font-medium text-[#1E293B]">{u.first_name} {u.last_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-500">{u.email}</td>
+                    <td className="px-4 py-3 text-slate-500">{u.city || '—'}</td>
+                    <td className="px-4 py-3 text-slate-400">{new Date(u.created_at).toLocaleDateString('en-IN')}</td>
+                    <td className="px-4 py-3">
+                      {u.role === 'admin' ? (
+                        <span className="text-xs text-slate-400 italic">Admin</span>
+                      ) : isConfirming ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-500">Remove {u.first_name}?</span>
+                          <button
+                            onClick={() => handleRemoveUser(u)}
+                            disabled={isSaving}
+                            className="text-xs font-semibold text-white bg-red-500 px-2 py-1 rounded-lg hover:bg-red-600 disabled:opacity-50"
+                          >Yes</button>
+                          <button
+                            onClick={() => setConfirmRemove(null)}
+                            className="text-xs font-semibold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50"
+                          >No</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmRemove(u.id)}
+                          className="text-xs font-semibold text-red-500 border border-red-200 px-3 py-1 rounded-lg hover:bg-red-50 transition"
+                        >Remove</button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => setUserPage(p => Math.max(1, p - 1))}
+            disabled={userPage === 1}
+            className="text-sm font-medium text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg
+              hover:bg-slate-50 disabled:opacity-40 transition"
+          >Prev</button>
+          <span className="text-sm text-slate-500">Page {userPage} of {totalPages}</span>
+          <button
+            onClick={() => setUserPage(p => Math.min(totalPages, p + 1))}
+            disabled={userPage === totalPages}
+            className="text-sm font-medium text-slate-500 border border-slate-200 px-3 py-1.5 rounded-lg
+              hover:bg-slate-50 disabled:opacity-40 transition"
+          >Next</button>
+        </div>
+      )}
     </div>
   )
-}
 
-function AnalyticsTab({ analytics }) {
-  if (!analytics) return null
-
-  return (
+  // ══════════════════════════════════════════════════════════
+  // TAB: POPULAR CITIES
+  // ══════════════════════════════════════════════════════════
+  const CitiesTab = () => (
     <div className="space-y-6">
-      {/* DAU Line Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Daily Active Users (Last 30 Days)</h3>
+      <ChartCard title="Top Destinations" data={cities}>
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={analytics.dauLast30Days}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="date" />
-            <YAxis />
+          <BarChart data={cities} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+            <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} />
             <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="users"
-              stroke="#f43f5e"
-              strokeWidth={2}
-              dot={{ fill: '#f43f5e', strokeWidth: 2, r: 3 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* New Signups Line Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">New User Signups (Last 12 Weeks)</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={analytics.monthlyGrowth}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" />
-            <YAxis />
-            <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="users"
-              stroke="#f43f5e"
-              strokeWidth={2}
-              dot={{ fill: '#f43f5e', strokeWidth: 2, r: 4 }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Trips per Month Bar Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Trips Created per Month</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={analytics.tripsPerMonth}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" />
-            <YAxis />
-            <Tooltip />
-            <Bar dataKey="trips" fill="#f97316" />
+            <Bar dataKey="popularity" fill="#0D9488" radius={[6, 6, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
-      </div>
+      </ChartCard>
 
-      {/* Trip Categories Pie Chart */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Trip Category Distribution</h3>
-        <ResponsiveContainer width="100%" height={300}>
-          <PieChart>
-            <Pie
-              data={[
-                { name: 'Adventure', value: 60, color: '#3b82f6' },
-                { name: 'Budget', value: 20, color: '#6b7280' },
-                { name: 'Luxury', value: 10, color: '#22c55e' },
-                { name: 'Cultural', value: 10, color: '#f59e0b' }
-              ]}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={100}
-              paddingAngle={5}
-              dataKey="value"
-            >
-              {[
-                { name: 'Adventure', value: 60, color: '#3b82f6' },
-                { name: 'Budget', value: 20, color: '#6b7280' },
-                { name: 'Luxury', value: 10, color: '#22c55e' },
-                { name: 'Cultural', value: 10, color: '#f59e0b' }
-              ].map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr className="text-xs text-slate-400">
+              {['City', 'Country', 'Popularity Score'].map(h => (
+                <th key={h} className="text-left px-5 py-3 font-medium">{h}</th>
               ))}
-            </Pie>
+            </tr>
+          </thead>
+          <tbody>
+            {[...cities].sort((a, b) => b.popularity - a.popularity).map(c => (
+              <tr key={c.name} className="border-t border-slate-50 hover:bg-slate-50/50">
+                <td className="px-5 py-3 font-medium text-[#1E293B]">{c.name}</td>
+                <td className="px-5 py-3 text-slate-500">{c.country}</td>
+                <td className="px-5 py-3 text-[#0D9488] font-semibold">{c.popularity}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+
+  // ══════════════════════════════════════════════════════════
+  // TAB: ANALYTICS
+  // ══════════════════════════════════════════════════════════
+  const AnalyticsTab = () => (
+    <div className="space-y-6">
+      {/* Line chart — user growth */}
+      <ChartCard title="User Registrations — Last 6 Months" data={analytics?.userGrowth}>
+        <ResponsiveContainer width="100%" height={270}>
+          <LineChart data={analytics?.userGrowth || []} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+            <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+            <YAxis tick={{ fontSize: 11 }} />
             <Tooltip />
-          </PieChart>
+            <Line
+              type="monotone" dataKey="count" stroke="#0D9488" strokeWidth={2.5}
+              dot={{ fill: '#0D9488', r: 4 }}
+            />
+          </LineChart>
         </ResponsiveContainer>
+      </ChartCard>
+
+      {/* Row 2 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Horizontal bar — activity categories */}
+        <ChartCard title="Activities by Category" data={analytics?.activityCategories}>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart
+              layout="vertical"
+              data={analytics?.activityCategories || []}
+              margin={{ top: 0, right: 10, left: 10, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+              <XAxis type="number" tick={{ fontSize: 11 }} />
+              <YAxis type="category" dataKey="category" tick={{ fontSize: 11 }} width={80} />
+              <Tooltip />
+              <Bar dataKey="count" fill="#F97316" radius={[0, 6, 6, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        {/* Platform summary */}
+        <div className="bg-white rounded-xl shadow-sm p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Platform Summary</h3>
+          {[
+            { label: 'Total Users',      value: stats?.totalUsers      },
+            { label: 'Total Trips',      value: stats?.totalTrips      },
+            { label: 'Ongoing Trips',    value: stats?.ongoingTrips    },
+            { label: 'Cities',           value: stats?.totalCities     },
+            { label: 'Activities',       value: stats?.totalActivities },
+          ].map((row, i, arr) => (
+            <div
+              key={row.label}
+              className={`flex items-center justify-between py-3 ${i < arr.length - 1 ? 'border-b' : ''}`}
+              style={{ borderColor: '#F1F5F9' }}
+            >
+              <span className="text-sm text-slate-400">{row.label}</span>
+              <span className="text-sm font-bold" style={{ color: '#0D9488' }}>{row.value ?? 0}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
+  // ══════════════════════════════════════════════════════════
+  // RENDER
+  // ══════════════════════════════════════════════════════════
+  return (
+    <div className="min-h-screen" style={{ background: '#F1F5F9' }}>
+      <AdminNavbar activeTab={activeTab} onTabChange={setActiveTab} />
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Page header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-xl font-bold text-[#1E293B]">Admin Dashboard</h1>
+            <p className="text-sm text-slate-400 mt-0.5">Manage your Traveloop platform</p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-2 text-sm font-semibold text-[#0D9488] border border-[#0D9488]
+              px-4 py-2 rounded-xl hover:bg-[#0D9488] hover:text-white transition"
+          >
+            ↻ Refresh
+          </button>
+        </div>
+
+        {activeTab === 'overview'  && <OverviewTab />}
+        {activeTab === 'users'     && <UsersTab />}
+        {activeTab === 'cities'    && <CitiesTab />}
+        {activeTab === 'analytics' && <AnalyticsTab />}
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
-          <h4 className="text-sm font-medium text-gray-500">Avg Trips per User</h4>
-          <p className="text-2xl font-bold text-gray-900">{analytics.peakStats.avgTripsPerUser}</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <h4 className="text-sm font-medium text-gray-500">Avg Activities per Trip</h4>
-          <p className="text-2xl font-bold text-gray-900">{analytics.peakStats.avgActivitiesPerTrip}</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <h4 className="text-sm font-medium text-gray-500">Most Active Day</h4>
-          <p className="text-2xl font-bold text-gray-900">{analytics.peakStats.mostActiveDay}</p>
-        </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <h4 className="text-sm font-medium text-gray-500">Peak Usage Hour</h4>
-          <p className="text-2xl font-bold text-gray-900">{analytics.peakStats.peakUsageHour}</p>
-        </div>
-      </div>
+      {/* Toasts */}
+      <Toast toasts={toasts} removeToast={removeToast} />
     </div>
   )
 }

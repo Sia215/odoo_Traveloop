@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Search, SlidersHorizontal, ChevronDown, Plane } from 'lucide-react'
+import { useNavigate, Navigate, useSearchParams } from 'react-router-dom'
+import { Search, SlidersHorizontal, ChevronDown, Plane, Wallet } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabaseClient'
+import { useUser } from '../context/UserContext'
 import Navbar from '../components/Navbar'
 import SectionHeading from '../components/SectionHeading'
 import EmptyState from '../components/EmptyState'
@@ -18,12 +19,16 @@ async function authHeaders() {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const { user: ctxUser } = useUser()
+  const isAdminExit = searchParams.get('exit') === '1'
   const [profile, setProfile] = useState(null)
   const [cities, setCities] = useState([])
   const [trips, setTrips] = useState([])
   const [citiesLoading, setCitiesLoading] = useState(true)
   const [tripsLoading, setTripsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [budgets, setBudgets] = useState([]) // [{ tripId, name, total }]
 
   // Load profile
   useEffect(() => {
@@ -55,12 +60,47 @@ export default function Dashboard() {
     const headers = await authHeaders()
     const res = await fetch(`${API}/api/trips?limit=6`, { headers })
     const data = await res.json()
-    if (data.success) setTrips(data.trips)
-    else toast.error('Failed to load trips')
+    if (data.success) {
+      const today = new Date().toISOString().split('T')[0]
+      setTrips(data.trips.map(t => ({
+        ...t,
+        status: !t.start_date || !t.end_date
+          ? (t.status || 'upcoming')
+          : t.end_date < today
+            ? 'completed'
+            : t.start_date <= today && t.end_date >= today
+              ? 'ongoing'
+              : 'upcoming',
+      })))
+    } else toast.error('Failed to load trips')
     setTripsLoading(false)
   }, [])
 
   useEffect(() => { loadTrips() }, [loadTrips])
+
+  // Load budget overview from sections
+  useEffect(() => {
+    const load = async () => {
+      const headers = await authHeaders()
+      const res = await fetch(`${API}/api/trips?limit=all`, { headers })
+      const data = await res.json()
+      if (!data.success) return
+      const today = new Date().toISOString().split('T')[0]
+      const activeTrips = data.trips.filter(t => !t.end_date || t.end_date >= today)
+      const results = await Promise.all(
+        activeTrips.map(async t => {
+          const r = await fetch(`${API}/api/trips/${t.id}/sections`, { headers })
+          const d = await r.json()
+          const total = d.success
+            ? d.sections.reduce((sum, s) => sum + (parseFloat(s.budget) || 0), 0)
+            : 0
+          return { tripId: t.id, name: t.name, total }
+        })
+      )
+      setBudgets(results.filter(b => b.total > 0))
+    }
+    load()
+  }, [])
 
   const handleDeleteTrip = async (id) => {
     if (!window.confirm('Delete this trip?')) return
@@ -77,8 +117,10 @@ export default function Dashboard() {
 
   const handleSearch = (e) => {
     e.preventDefault()
-    if (searchQuery.trim()) navigate(`/explore?q=${encodeURIComponent(searchQuery)}`)
+    if (searchQuery.trim()) navigate(`/activities?q=${encodeURIComponent(searchQuery)}`)
   }
+
+  if (ctxUser?.role === 'admin' && !isAdminExit) return <Navigate to="/admin" replace />
 
   return (
     <div className="min-h-screen bg-background">
@@ -150,7 +192,7 @@ export default function Dashboard() {
 
         {/* Top Regional Selections */}
         <section>
-          <SectionHeading title="Top Regional Selections" ctaLabel="View all" onCta={() => navigate('/explore')} />
+          <SectionHeading title="Top Regional Selections" ctaLabel="View all" onCta={() => navigate('/activities')} />
           <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide">
             {citiesLoading
               ? Array.from({ length: 5 }).map((_, i) => <CityCardSkeleton key={i} />)
@@ -160,10 +202,30 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Previous Trips */}
+        {/* Budget Overview */}
+        {budgets.length > 0 && (
+          <section>
+            <SectionHeading title="Budget Overview" ctaLabel="View all trips" onCta={() => navigate('/trips')} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {budgets.map(b => (
+                <div key={b.tripId} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
+                    <Wallet size={18} className="text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-400 truncate">{b.name}</p>
+                    <p className="text-base font-bold text-dark">₹{b.total.toLocaleString('en-IN')}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Upcoming Trips */}
         <section>
           <SectionHeading
-            title="Previous Trips"
+            title="Upcoming Trips"
             ctaLabel="View all"
             onCta={() => navigate('/trips')}
           />
@@ -180,7 +242,7 @@ export default function Dashboard() {
             />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {trips.map((trip, i) => (
+              {trips.filter(t => t.status !== 'completed').map((trip, i) => (
                 <TripCard
                   key={trip.id}
                   {...trip}

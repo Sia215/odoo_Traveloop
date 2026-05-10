@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Plus, MapPin, Eye } from 'lucide-react'
+import { ArrowLeft, Plus, MapPin, Eye, Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { useToast } from '../hooks/useToast'
 import Navbar from '../components/Navbar'
 import SectionCard from '../components/SectionCard'
 import EmptyState from '../components/EmptyState'
 import Toast from '../components/Toast'
+import ActivityModal from '../components/ActivityModal'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -62,14 +63,17 @@ export default function ItineraryBuilder() {
   const navigate = useNavigate()
   const { toasts, showToast, removeToast } = useToast()
 
-  const [trip, setTrip]           = useState(null)
-  const [sections, setSections]   = useState([])
-  const [isSaving, setIsSaving]   = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [notFound, setNotFound]   = useState(false)
-  const [errors, setErrors]       = useState({})
-  const [dragIndex, setDragIndex] = useState(null)
-  const [hasSaved, setHasSaved]   = useState(false)
+  const [trip, setTrip]               = useState(null)
+  const [sections, setSections]       = useState([])
+  const [activities, setActivities]   = useState([])   // { id, section_id, name, ... }
+  const [actModal, setActModal]       = useState(null) // null | { sectionId, initial }
+  const [actSaving, setActSaving]     = useState(false)
+  const [isSaving, setIsSaving]       = useState(false)
+  const [isLoading, setIsLoading]     = useState(true)
+  const [notFound, setNotFound]       = useState(false)
+  const [errors, setErrors]           = useState({})
+  const [dragIndex, setDragIndex]     = useState(null)
+  const [hasSaved, setHasSaved]       = useState(false)
 
   // Warn on unsaved changes
   useEffect(() => {
@@ -112,6 +116,14 @@ export default function ItineraryBuilder() {
       } else {
         setSections([makeBlankSection(0), makeBlankSection(1), makeBlankSection(2)])
       }
+
+      // Load activities
+      const actRes  = await fetch(`${API}/api/itinerary/${tripId}/activities`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const actData = await actRes.json()
+      if (actData.success) setActivities(actData.activities)
+
       setIsLoading(false)
     }
     load()
@@ -185,6 +197,45 @@ export default function ItineraryBuilder() {
     return errs
   }
 
+  // Activity handlers
+  const handleSaveActivity = async (formData) => {
+    setActSaving(true)
+    const token = await getToken()
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+    const isEdit = !!actModal.initial?.id
+
+    const url = isEdit
+      ? `${API}/api/itinerary/${tripId}/activities/${actModal.initial.id}`
+      : `${API}/api/itinerary/${tripId}/activities`
+
+    const res  = await fetch(url, {
+      method: isEdit ? 'PATCH' : 'POST',
+      headers,
+      body: JSON.stringify({ ...formData, stop_id: actModal.sectionId || null }),
+    })
+    const data = await res.json()
+    setActSaving(false)
+    if (!data.success) { showToast('Failed to save activity', 'error'); return }
+
+    setActivities(prev =>
+      isEdit
+        ? prev.map(a => a.id === data.activity.id ? data.activity : a)
+        : [...prev, data.activity]
+    )
+    setActModal(null)
+    showToast(isEdit ? 'Activity updated!' : 'Activity added!', 'success')
+  }
+
+  const handleDeleteActivity = async (actId) => {
+    const token = await getToken()
+    await fetch(`${API}/api/itinerary/${tripId}/activities/${actId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    setActivities(prev => prev.filter(a => a.id !== actId))
+    showToast('Activity removed', 'info')
+  }
+
   // Save
   const handleSave = async () => {
     const errs = validate()
@@ -224,7 +275,7 @@ export default function ItineraryBuilder() {
 
     setHasSaved(true)
     showToast('Itinerary saved successfully!', 'success')
-    setTimeout(() => navigate('/my-trips'), 1500)
+    setTimeout(() => navigate(`/itinerary/${tripId}`), 1500)
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -262,7 +313,7 @@ export default function ItineraryBuilder() {
           </button>
           {hasSaved && (
             <button
-              onClick={() => showToast('Itinerary view coming soon', 'info')}
+              onClick={() => navigate(`/itinerary/${tripId}`)}
               className="inline-flex items-center gap-1.5 text-sm font-semibold border-2 border-primary
                 text-primary px-3 py-1.5 rounded-xl hover:bg-teal-50 transition"
             >
@@ -327,6 +378,34 @@ export default function ItineraryBuilder() {
                     errors={errors[i] || {}}
                     isDragging={dragIndex === i}
                   />
+
+                  {/* Activities for this section */}
+                  {activities.filter(a => a.stop_id === section.id).map(act => (
+                    <div key={act.id}
+                      className="ml-4 mt-2 flex items-center justify-between bg-slate-50
+                        border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                      <span className="font-medium text-dark">{act.name}</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => setActModal({ sectionId: section.id, initial: act })}
+                          className="text-slate-400 hover:text-primary transition">
+                          <Pencil size={14} />
+                        </button>
+                        <button onClick={() => handleDeleteActivity(act.id)}
+                          className="text-slate-400 hover:text-red-500 transition">
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => setActModal({ sectionId: section.id, initial: null })}
+                    className="ml-4 mt-2 text-xs text-primary font-semibold flex items-center
+                      gap-1 hover:underline transition"
+                  >
+                    <Plus size={12} /> Add Activity
+                  </button>
                 </div>
               ))}
             </div>
@@ -344,6 +423,16 @@ export default function ItineraryBuilder() {
           </>
         )}
       </div>
+
+      {/* Activity Modal */}
+      {actModal && (
+        <ActivityModal
+          initial={actModal.initial}
+          saving={actSaving}
+          onSave={handleSaveActivity}
+          onClose={() => setActModal(null)}
+        />
+      )}
 
       {/* Sticky bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 shadow-lg z-50

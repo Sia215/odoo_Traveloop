@@ -24,10 +24,10 @@ export default function CityCard({ id, name, country, popularity, image_url, ind
   return (
     <div
       onClick={() => navigate(`/activities?city=${encodeURIComponent(name)}`)}
-      className="shrink-0 w-44 rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md
+      className="shrink-0 w-52 rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md
         transition-all hover:-translate-y-1 border border-slate-100"
     >
-      <div className={`h-28 relative bg-gradient-to-br ${CITY_GRADIENTS[index % CITY_GRADIENTS.length]}`}>
+      <div className={`h-36 relative bg-gradient-to-br ${CITY_GRADIENTS[index % CITY_GRADIENTS.length]}`}>
         {photo && (
           <img src={photo} alt={name} className="w-full h-full object-cover absolute inset-0" />
         )}
@@ -50,8 +50,8 @@ export default function CityCard({ id, name, country, popularity, image_url, ind
 
 export function CityCardSkeleton() {
   return (
-    <div className="shrink-0 w-44 rounded-2xl overflow-hidden border border-slate-100">
-      <div className="h-28 bg-slate-100 animate-pulse" />
+    <div className="shrink-0 w-52 rounded-2xl overflow-hidden border border-slate-100">
+      <div className="h-36 bg-slate-100 animate-pulse" />
       <div className="bg-white p-3 space-y-2">
         <div className="h-3 bg-slate-100 rounded animate-pulse w-3/4" />
         <div className="h-3 bg-slate-100 rounded animate-pulse w-1/2" />

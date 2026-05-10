@@ -41,7 +41,7 @@ export default function ActivitySearch() {
   const [isLoading, setIsLoading]         = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [filters, setFilters]             = useState({
-    search: '', category: '', city: searchParams.get('city') || '',
+    search: searchParams.get('q') || '', category: '', city: searchParams.get('city') || '',
     min_cost: '', max_cost: '', max_duration: '', sort: '',
   })
   const [categories, setCategories]       = useState([])
@@ -88,7 +88,7 @@ export default function ActivitySearch() {
       const res  = await fetch(`${API}/api/trips/${selectedTripId}/activities`, { headers })
       const data = await res.json()
       if (data.activities) {
-        setAddedActivityIds(new Set(data.activities.map(a => a.activity_id ?? a.id)))
+        setAddedActivityIds(new Set(data.activities.map(a => String(a.activity_id ?? a.id))))
       }
     }
     load()
@@ -155,7 +155,8 @@ export default function ActivitySearch() {
   // ── Add / Remove ────────────────────────────────────────────────────────────
   const handleAdd = async (activityId) => {
     if (!selectedTripId) { showToast('Please select a trip first', 'warning'); return }
-    setAddedActivityIds(prev => new Set([...prev, activityId]))
+    const sid = String(activityId)
+    setAddedActivityIds(prev => new Set([...prev, sid]))
     try {
       const headers = await authHeaders()
       const res = await fetch(`${API}/api/trips/${selectedTripId}/activities`, {
@@ -167,13 +168,14 @@ export default function ActivitySearch() {
       if (!data.success) throw new Error(data.message)
       showToast('Activity added!', 'success')
     } catch {
-      setAddedActivityIds(prev => { const s = new Set(prev); s.delete(activityId); return s })
+      setAddedActivityIds(prev => { const s = new Set(prev); s.delete(sid); return s })
       showToast('Failed to add activity', 'error')
     }
   }
 
   const handleRemove = async (activityId) => {
-    setAddedActivityIds(prev => { const s = new Set(prev); s.delete(activityId); return s })
+    const sid = String(activityId)
+    setAddedActivityIds(prev => { const s = new Set(prev); s.delete(sid); return s })
     try {
       const headers = await authHeaders()
       const res = await fetch(`${API}/api/trips/${selectedTripId}/activities/${activityId}`, {
@@ -182,7 +184,7 @@ export default function ActivitySearch() {
       const data = await res.json()
       if (!data.success) throw new Error(data.message)
     } catch {
-      setAddedActivityIds(prev => new Set([...prev, activityId]))
+      setAddedActivityIds(prev => new Set([...prev, sid]))
       showToast('Failed to remove activity', 'error')
     }
   }
@@ -276,7 +278,7 @@ export default function ActivitySearch() {
                 >
                   <ActivityCard
                     {...activity}
-                    isAdded={addedActivityIds.has(activity.id)}
+                    isAdded={addedActivityIds.has(String(activity.id))}
                     onAdd={handleAdd}
                     onRemove={handleRemove}
                   />
