@@ -1,265 +1,429 @@
-import { useState, useEffect, useRef } from 'react'
-import { Search, Filter, Heart, MessageCircle, Copy, Share2, MapPin, Calendar, Users } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Search, Heart, MessageCircle, Copy, Share2, MapPin, ChevronDown, SlidersHorizontal, X, Globe, Lock, Send } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { useUser } from '../context/UserContext'
+import Navbar from '../components/Navbar'
 import toast from 'react-hot-toast'
+
+const API = import.meta.env.VITE_API_URL
+
+async function authHeaders() {
+  const { data: { session } } = await supabase.auth.getSession()
+  return { Authorization: `Bearer ${session?.access_token}` }
+}
+
+const TAG_COLORS = {
+  Adventure: 'bg-orange-100 text-orange-700',
+  Budget:    'bg-green-100 text-green-700',
+  Luxury:    'bg-purple-100 text-purple-700',
+  Family:    'bg-blue-100 text-blue-700',
+  Solo:      'bg-pink-100 text-pink-700',
+  Beach:     'bg-cyan-100 text-cyan-700',
+  Mountain:  'bg-slate-100 text-slate-700',
+  City:      'bg-yellow-100 text-yellow-700',
+  Cultural:  'bg-red-100 text-red-700',
+  Food:      'bg-lime-100 text-lime-700',
+}
+
+const TAGS = Object.keys(TAG_COLORS)
+
+function Avatar({ url, name = '?', size = 8 }) {
+  const initials = name?.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?'
+  return url
+    ? <img src={url} alt={name} className={`w-${size} h-${size} rounded-full object-cover shrink-0`} />
+    : <div className={`w-${size} h-${size} rounded-full bg-primary flex items-center justify-center shrink-0`}>
+        <span className="text-white text-xs font-bold">{initials}</span>
+      </div>
+}
+
+function TagBadge({ tag }) {
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${TAG_COLORS[tag] || 'bg-slate-100 text-slate-600'}`}>
+      {tag}
+    </span>
+  )
+}
+
+function PostCard({ post, selected, onSelect, onLike, likedIds }) {
+  const liked = likedIds.has(post.id)
+  const name = post.profile ? `${post.profile.first_name ?? ''} ${post.profile.last_name ?? ''}`.trim() : 'Anonymous'
+  return (
+    <div
+      onClick={() => onSelect(post)}
+      className={`relative bg-white rounded-xl border cursor-pointer transition-all duration-200 p-4 group
+        ${selected ? 'border-primary bg-teal-50/60 shadow-md' : 'border-slate-200 hover:shadow-md hover:border-slate-300'}`}
+    >
+      {selected && <div className="absolute left-0 top-3 bottom-3 w-1 bg-primary rounded-r-full" />}
+      <div className="flex items-start gap-3">
+        <input type="radio" readOnly checked={selected} className="mt-1 accent-primary shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            <Avatar url={post.profile?.avatar_url} name={name} size={7} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-dark truncate">{name}</p>
+              <p className="text-xs text-slate-400">{new Date(post.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
+            </div>
+          </div>
+          <h3 className="font-semibold text-dark text-sm mb-1 line-clamp-1">{post.title}</h3>
+          <p className="text-xs text-slate-500 line-clamp-2 mb-2">{post.content}</p>
+          {post.tags?.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-3">
+              {post.tags.slice(0, 3).map(t => <TagBadge key={t} tag={t} />)}
+            </div>
+          )}
+          <div className="flex items-center gap-3 text-xs text-slate-400">
+            <button
+              onClick={e => { e.stopPropagation(); onLike(post.id) }}
+              className={`flex items-center gap-1 transition-colors ${liked ? 'text-red-500' : 'hover:text-red-400'}`}
+            >
+              <Heart className={`w-3.5 h-3.5 ${liked ? 'fill-red-500' : ''}`} />
+              {post.like_count}
+            </button>
+            <span className="flex items-center gap-1"><MessageCircle className="w-3.5 h-3.5" />{post.comment_count}</span>
+            <span className="flex items-center gap-1"><Copy className="w-3.5 h-3.5" />{post.copy_count}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+      <div className="w-20 h-20 rounded-full bg-teal-50 flex items-center justify-center mb-4">
+        <Globe className="w-10 h-10 text-primary" />
+      </div>
+      <h3 className="text-lg font-semibold text-dark mb-1">No community posts yet</h3>
+      <p className="text-slate-400 text-sm">Be the first to share your trip!</p>
+    </div>
+  )
+}
+
+function DetailPanel({ post, comments, loadingComments, user, onLike, onComment, onCopy, onShare, likedIds, onClose }) {
+  const [newComment, setNewComment] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const liked = likedIds.has(post.id)
+  const name = post.profile ? `${post.profile.first_name ?? ''} ${post.profile.last_name ?? ''}`.trim() : 'Anonymous'
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!newComment.trim()) return
+    setSubmitting(true)
+    await onComment(newComment.trim())
+    setNewComment('')
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 flex flex-col h-full animate-slide-in overflow-hidden">
+      {/* Header */}
+      <div className="p-5 border-b border-slate-100">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="flex items-center gap-3">
+            <Avatar url={post.profile?.avatar_url} name={name} size={10} />
+            <div>
+              <p className="font-semibold text-dark">{name}</p>
+              <p className="text-xs text-slate-400">{new Date(post.created_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="flex items-center gap-1 text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded-full">
+              <Lock className="w-3 h-3" /> Read-only
+            </span>
+            <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 md:hidden">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        <h2 className="text-xl font-bold text-dark mb-2">{post.title}</h2>
+        {post.tags?.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {post.tags.map(t => <TagBadge key={t} tag={t} />)}
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Content */}
+        <div className="p-5 border-b border-slate-100">
+          <p className="text-slate-600 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
+        </div>
+
+        {/* Trip Summary */}
+        {post.trips && (
+          <div className="mx-5 my-4 bg-teal-50 rounded-xl p-4 border border-teal-100">
+            <p className="text-xs font-semibold text-primary uppercase tracking-wide mb-2">Linked Trip</p>
+            <p className="font-semibold text-dark">{post.trips.name}</p>
+            {post.trips.start_date && post.trips.end_date && (
+              <p className="text-xs text-slate-500 mt-1">
+                {Math.ceil((new Date(post.trips.end_date) - new Date(post.trips.start_date)) / 86400000)} days
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="px-5 pb-4 flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => onLike(post.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all border
+              ${liked ? 'bg-red-50 text-red-500 border-red-200' : 'bg-white text-slate-600 border-slate-200 hover:border-red-200 hover:text-red-400'}`}
+          >
+            <Heart className={`w-4 h-4 ${liked ? 'fill-red-500' : ''}`} />
+            {liked ? 'Liked' : 'Like'} · {post.like_count}
+          </button>
+          <button
+            onClick={onCopy}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-primary text-white hover:bg-teal-700 transition-all"
+          >
+            <Copy className="w-4 h-4" /> Copy This Trip
+          </button>
+          <button
+            onClick={onShare}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-white text-slate-600 border border-slate-200 hover:bg-slate-50 transition-all"
+          >
+            <Share2 className="w-4 h-4" /> Share
+          </button>
+        </div>
+
+        {/* Comments */}
+        <div className="px-5 pb-5 border-t border-slate-100 pt-4">
+          <p className="font-semibold text-dark mb-3 text-sm">Comments · {post.comment_count}</p>
+
+          {user ? (
+            <form onSubmit={submit} className="flex gap-2 mb-4">
+              <Avatar url={user.avatar_url} name={`${user.first_name} ${user.last_name}`} size={8} />
+              <div className="flex-1 flex items-center gap-2 bg-slate-50 rounded-xl px-3 border border-slate-200 focus-within:border-primary transition-colors">
+                <input
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                  placeholder="Add a comment..."
+                  className="flex-1 py-2.5 text-sm bg-transparent outline-none text-dark placeholder-slate-400"
+                />
+                <button type="submit" disabled={submitting || !newComment.trim()} className="text-primary disabled:opacity-40">
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-700">
+              <a href="/login" className="font-semibold underline">Login</a> to like, comment, and copy trips.
+            </div>
+          )}
+
+          {loadingComments ? (
+            <div className="space-y-3">
+              {[1,2].map(i => <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />)}
+            </div>
+          ) : comments.length === 0 ? (
+            <p className="text-slate-400 text-sm text-center py-4">No comments yet. Be the first!</p>
+          ) : (
+            <div className="space-y-3">
+              {comments.map(c => {
+                const cName = c.profile ? `${c.profile.first_name ?? ''} ${c.profile.last_name ?? ''}`.trim() : 'Anonymous'
+                return (
+                  <div key={c.id} className="flex gap-2.5">
+                    <Avatar url={c.profile?.avatar_url} name={cName} size={7} />
+                    <div className="flex-1 bg-slate-50 rounded-xl px-3 py-2">
+                      <div className="flex items-center gap-2 mb-0.5">
+                        <span className="text-xs font-semibold text-dark">{cName}</span>
+                        <span className="text-xs text-slate-400">{new Date(c.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-xs text-slate-600">{c.content}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function Community() {
   const { user } = useUser()
   const [posts, setPosts] = useState([])
   const [selectedPost, setSelectedPost] = useState(null)
   const [comments, setComments] = useState([])
-  const [loading, setLoading] = useState(true)
   const [loadingComments, setLoadingComments] = useState(false)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedTag, setSelectedTag] = useState('')
-  const [sortBy, setSortBy] = useState('most_recent')
-  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(true)
-  const [newComment, setNewComment] = useState('')
-  const [submittingComment, setSubmittingComment] = useState(false)
+  const [search, setSearch] = useState('')
+  const [tag, setTag] = useState('')
+  const [sort, setSort] = useState('most_recent')
+  const [likedIds, setLikedIds] = useState(new Set())
+  const [showMobileDetail, setShowMobileDetail] = useState(false)
   const observerRef = useRef()
+  const realtimeRef = useRef()
 
-  const tags = ['Adventure', 'Budget', 'Luxury', 'Family', 'Solo', 'Beach', 'Mountain', 'City', 'Cultural', 'Food']
+  const sortMap = { most_recent: 'recent', most_liked: 'liked', most_commented: 'commented', most_copied: 'copied' }
+  const pageRef = useRef(1)
+  const searchRef = useRef(search)
+  const tagRef = useRef(tag)
+  const sortRef = useRef(sort)
 
-  // Fetch posts
-  const fetchPosts = async (reset = false) => {
+  const fetchPosts = useCallback(async (reset = false) => {
+    if (reset) { setLoading(true); pageRef.current = 1 }
+    else setLoadingMore(true)
     try {
-      const currentPage = reset ? 1 : page
-      const params = new URLSearchParams({
-        page: currentPage,
-        limit: 10,
-        sort: sortBy
-      })
-
-      if (searchTerm) params.append('search', searchTerm)
-      if (selectedTag) params.append('tag', selectedTag)
-
-      const response = await fetch(`/api/community?${params}`)
-      const data = await response.json()
-
+      const p = pageRef.current
+      const params = new URLSearchParams({ page: p, limit: 10, sort: sortMap[sortRef.current] })
+      if (searchRef.current) params.set('search', searchRef.current)
+      if (tagRef.current) params.set('tag', tagRef.current)
+      const res = await fetch(`${API}/api/community?${params}`)
+      const data = await res.json()
       if (data.success) {
-        if (reset) {
-          setPosts(data.posts)
-          setPage(1)
-        } else {
-          setPosts(prev => [...prev, ...data.posts])
-        }
+        setPosts(prev => reset ? data.posts : [...prev, ...data.posts])
         setHasMore(data.posts.length === 10)
-        if (!reset) setPage(prev => prev + 1)
+        pageRef.current = p + 1
       }
-    } catch (error) {
-      console.error('Error fetching posts:', error)
-      toast.error('Failed to load community posts')
-    } finally {
-      setLoading(false)
-    }
-  }
+    } catch { toast.error('Failed to load posts') }
+    finally { setLoading(false); setLoadingMore(false) }
+  }, [])
 
-  // Fetch comments for selected post
+  // reset on filter change
+  useEffect(() => {
+    searchRef.current = search
+    tagRef.current = tag
+    sortRef.current = sort
+    fetchPosts(true)
+  }, [search, tag, sort, fetchPosts])
+
+  // infinite scroll
+  const hasMoreRef = useRef(hasMore)
+  const loadingMoreRef = useRef(loadingMore)
+  const loadingRef = useRef(loading)
+  useEffect(() => { hasMoreRef.current = hasMore }, [hasMore])
+  useEffect(() => { loadingMoreRef.current = loadingMore }, [loadingMore])
+  useEffect(() => { loadingRef.current = loading }, [loading])
+
+  useEffect(() => {
+    const el = observerRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting && hasMoreRef.current && !loadingMoreRef.current && !loadingRef.current) fetchPosts()
+    }, { threshold: 0.5 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [fetchPosts])
+
   const fetchComments = async (postId) => {
     setLoadingComments(true)
     try {
-      const response = await fetch(`/api/community/${postId}/comments`)
-      const data = await response.json()
-      if (data.success) {
-        setComments(data.comments)
-      }
-    } catch (error) {
-      console.error('Error fetching comments:', error)
-      toast.error('Failed to load comments')
-    } finally {
-      setLoadingComments(false)
-    }
+      const res = await fetch(`${API}/api/community/${postId}/comments`)
+      const data = await res.json()
+      if (data.success) setComments(data.comments)
+    } catch { toast.error('Failed to load comments') }
+    finally { setLoadingComments(false) }
   }
 
-  // Handle post selection
-  const handlePostSelect = (post) => {
+  const handleSelect = (post) => {
     setSelectedPost(post)
     fetchComments(post.id)
+    setShowMobileDetail(true)
+
+    // realtime subscription for comments
+    if (realtimeRef.current) supabase.removeChannel(realtimeRef.current)
+    realtimeRef.current = supabase
+      .channel(`comments:${post.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'community_comments', filter: `post_id=eq.${post.id}` },
+        payload => setComments(prev => prev.find(c => c.id === payload.new.id) ? prev : [...prev, { ...payload.new, profile: null }])
+      )
+      .subscribe()
   }
 
-  // Handle like toggle
+  useEffect(() => () => { if (realtimeRef.current) supabase.removeChannel(realtimeRef.current) }, [])
+
   const handleLike = async (postId) => {
-    if (!user) {
-      toast.error('Please login to like posts')
-      return
-    }
-
+    if (!user) { toast.error('Login to like posts'); return }
+    const headers = await authHeaders()
     try {
-      const response = await fetch(`/api/community/${postId}/like`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabase.auth.getSession()}`
-        }
-      })
-
-      const data = await response.json()
+      const res = await fetch(`${API}/api/community/${postId}/like`, { method: 'POST', headers })
+      const data = await res.json()
       if (data.success) {
-        setPosts(prev => prev.map(post =>
-          post.id === postId
-            ? { ...post, like_count: data.liked ? post.like_count + 1 : post.like_count - 1 }
-            : post
-        ))
-        if (selectedPost?.id === postId) {
-          setSelectedPost(prev => ({
-            ...prev,
-            like_count: data.liked ? prev.like_count + 1 : prev.like_count - 1
-          }))
-        }
+        setLikedIds(prev => { const s = new Set(prev); data.liked ? s.add(postId) : s.delete(postId); return s })
+        const delta = data.liked ? 1 : -1
+        setPosts(prev => prev.map(p => p.id === postId ? { ...p, like_count: p.like_count + delta } : p))
+        setSelectedPost(prev => prev?.id === postId ? { ...prev, like_count: prev.like_count + delta } : prev)
       }
-    } catch (error) {
-      console.error('Error toggling like:', error)
-      toast.error('Failed to like post')
-    }
+    } catch { toast.error('Failed to toggle like') }
   }
 
-  // Handle comment submission
-  const handleCommentSubmit = async (e) => {
-    e.preventDefault()
-    if (!user || !newComment.trim()) return
-
-    setSubmittingComment(true)
+  const handleComment = async (content) => {
+    if (!user) return
+    const headers = { ...(await authHeaders()), 'Content-Type': 'application/json' }
     try {
-      const response = await fetch(`/api/community/${selectedPost.id}/comment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabase.auth.getSession()}`
-        },
-        body: JSON.stringify({ content: newComment })
-      })
-
-      const data = await response.json()
+      const res = await fetch(`${API}/api/community/${selectedPost.id}/comment`, { method: 'POST', headers, body: JSON.stringify({ content }) })
+      const data = await res.json()
       if (data.success) {
         setComments(prev => [...prev, data.comment])
-        setNewComment('')
-        setPosts(prev => prev.map(post =>
-          post.id === selectedPost.id
-            ? { ...post, comment_count: post.comment_count + 1 }
-            : post
-        ))
-        setSelectedPost(prev => ({
-          ...prev,
-          comment_count: prev.comment_count + 1
-        }))
+        setPosts(prev => prev.map(p => p.id === selectedPost.id ? { ...p, comment_count: p.comment_count + 1 } : p))
+        setSelectedPost(prev => ({ ...prev, comment_count: prev.comment_count + 1 }))
+        toast.success('Comment posted!')
       }
-    } catch (error) {
-      console.error('Error submitting comment:', error)
-      toast.error('Failed to add comment')
-    } finally {
-      setSubmittingComment(false)
-    }
+    } catch { toast.error('Failed to post comment') }
   }
 
-  // Handle trip copy
-  const handleCopyTrip = async () => {
-    if (!user) {
-      toast.error('Please login to copy trips')
-      return
-    }
-
+  const handleCopy = async () => {
+    if (!user) { toast.error('Login to copy trips'); return }
+    const headers = await authHeaders()
     try {
-      const response = await fetch(`/api/community/${selectedPost.id}/copy`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${supabase.auth.getSession()}`
-        }
-      })
-
-      const data = await response.json()
+      const res = await fetch(`${API}/api/community/${selectedPost.id}/copy`, { method: 'POST', headers })
+      const data = await res.json()
       if (data.success) {
         toast.success('Trip copied to your account!')
-        setPosts(prev => prev.map(post =>
-          post.id === selectedPost.id
-            ? { ...post, copy_count: post.copy_count + 1 }
-            : post
-        ))
-        setSelectedPost(prev => ({
-          ...prev,
-          copy_count: prev.copy_count + 1
-        }))
-      }
-    } catch (error) {
-      console.error('Error copying trip:', error)
-      toast.error('Failed to copy trip')
-    }
+        setPosts(prev => prev.map(p => p.id === selectedPost.id ? { ...p, copy_count: p.copy_count + 1 } : p))
+        setSelectedPost(prev => ({ ...prev, copy_count: prev.copy_count + 1 }))
+      } else toast.error(data.message || 'Failed to copy trip')
+    } catch { toast.error('Failed to copy trip') }
   }
 
-  // Infinite scroll setup
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) {
-          fetchPosts()
-        }
-      },
-      { threshold: 1.0 }
-    )
-
-    if (observerRef.current) {
-      observer.observe(observerRef.current)
-    }
-
-    return () => observer.disconnect()
-  }, [hasMore, loading])
-
-  // Initial load and search/filter changes
-  useEffect(() => {
-    fetchPosts(true)
-  }, [searchTerm, selectedTag, sortBy])
-
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    })
-  }
-
-  const truncateText = (text, maxLength = 150) => {
-    if (text.length <= maxLength) return text
-    return text.substring(0, maxLength) + '...'
+  const handleShare = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/community?post=${selectedPost.id}`)
+    toast.success('Link copied to clipboard!')
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between mb-4">
-            <h1 className="text-2xl font-bold text-gray-900">Traveloop</h1>
-            <div className="flex items-center gap-4">
-              {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  placeholder="Search destinations, usernames..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
+    <div className="min-h-screen bg-background">
+      <Navbar />
 
-              {/* Filter & Sort */}
-              <select
-                value={selectedTag}
-                onChange={(e) => setSelectedTag(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
+      {/* Hero */}
+      <div className="relative bg-gradient-to-br from-teal-600 via-teal-500 to-cyan-400 overflow-hidden">
+        <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10" />
+        <div className="absolute -bottom-20 -left-10 w-72 h-72 rounded-full bg-white/10" />
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+          <h1 className="text-3xl font-bold text-white mb-1">Community</h1>
+          <p className="text-teal-100 text-sm mb-6">Explore trips shared by travelers</p>
+
+          {/* Search + Filter bar */}
+          <div className="flex flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-1 min-w-[200px] bg-white rounded-xl px-4 shadow-lg">
+              <Search size={16} className="text-slate-400 shrink-0" />
+              <input
+                type="text"
+                placeholder="Search destinations, usernames, keywords..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="flex-1 py-3 text-sm text-dark placeholder-slate-400 outline-none bg-transparent"
+              />
+              {search && <button onClick={() => setSearch('')}><X size={14} className="text-slate-400" /></button>}
+            </div>
+
+            <div className="flex items-center gap-1 bg-white rounded-xl px-3 shadow-lg">
+              <SlidersHorizontal size={14} className="text-slate-400" />
+              <select value={tag} onChange={e => setTag(e.target.value)} className="py-3 text-sm text-slate-600 outline-none bg-transparent pr-1">
                 <option value="">All Tags</option>
-                {tags.map(tag => (
-                  <option key={tag} value={tag}>{tag}</option>
-                ))}
+                {TAGS.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
+            </div>
 
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
+            <div className="flex items-center gap-1 bg-white rounded-xl px-3 shadow-lg">
+              <ChevronDown size={14} className="text-slate-400" />
+              <select value={sort} onChange={e => setSort(e.target.value)} className="py-3 text-sm text-slate-600 outline-none bg-transparent pr-1">
                 <option value="most_recent">Most Recent</option>
                 <option value="most_liked">Most Liked</option>
                 <option value="most_commented">Most Commented</option>
@@ -267,267 +431,93 @@ export default function Community() {
               </select>
             </div>
           </div>
-
-          <h2 className="text-lg text-gray-600">Explore trips shared by travelers</h2>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Posts List */}
-          <div className="lg:col-span-1 space-y-4">
-            {loading && posts.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-                <p className="text-gray-500 mt-2">Loading posts...</p>
+      {/* Main layout */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div className="flex gap-6">
+
+          {/* Left: Post list */}
+          <div className="w-full lg:w-[380px] xl:w-[420px] shrink-0 lg:h-[calc(100vh-220px)] lg:overflow-y-auto lg:pr-1 scrollbar-hide">
+            {loading ? (
+              <div className="space-y-3">
+                {[1,2,3,4].map(i => <div key={i} className="h-36 bg-white rounded-xl border border-slate-200 animate-pulse" />)}
               </div>
             ) : posts.length === 0 ? (
-              <div className="text-center py-12">
-                <MapPin className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No community posts yet</h3>
-                <p className="text-gray-500">Be the first to share your trip!</p>
-              </div>
+              <EmptyState />
             ) : (
-              posts.map((post) => (
-                <div
-                  key={post.id}
-                  onClick={() => handlePostSelect(post)}
-                  className={`bg-white rounded-lg border p-4 cursor-pointer transition-all ${
-                    selectedPost?.id === post.id
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:shadow-md'
-                  }`}
-                >
-                  <div className="flex items-start gap-3 mb-3">
-                    <input
-                      type="radio"
-                      checked={selectedPost?.id === post.id}
-                      readOnly
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <img
-                          src={post.profiles?.avatar_url || '/default-avatar.png'}
-                          alt="Avatar"
-                          className="w-8 h-8 rounded-full"
-                        />
-                        <span className="font-medium text-sm">
-                          {post.profiles?.first_name} {post.profiles?.last_name}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {formatDate(post.created_at)}
-                        </span>
-                      </div>
-
-                      <h3 className="font-semibold text-gray-900 mb-1">{post.title}</h3>
-                      <p className="text-sm text-gray-600 mb-2">
-                        {truncateText(post.content)}
-                      </p>
-
-                      {post.tags && post.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-3">
-                          {post.tags.map(tag => (
-                            <span
-                              key={tag}
-                              className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleLike(post.id)
-                          }}
-                          className="flex items-center gap-1 hover:text-red-500"
-                        >
-                          <Heart className="w-4 h-4" />
-                          {post.like_count}
-                        </button>
-                        <div className="flex items-center gap-1">
-                          <MessageCircle className="w-4 h-4" />
-                          {post.comment_count}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Copy className="w-4 h-4" />
-                          {post.copy_count}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+              <div className="space-y-3">
+                {posts.map(post => (
+                  <PostCard
+                    key={post.id}
+                    post={post}
+                    selected={selectedPost?.id === post.id}
+                    onSelect={handleSelect}
+                    onLike={handleLike}
+                    likedIds={likedIds}
+                  />
+                ))}
+                <div ref={observerRef} className="h-4 flex items-center justify-center">
+                  {loadingMore && <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />}
                 </div>
-              ))
+              </div>
             )}
-
-            {/* Infinite scroll trigger */}
-            <div ref={observerRef} className="h-4" />
           </div>
 
-          {/* Detail Panel */}
-          <div className="lg:col-span-2">
+          {/* Right: Detail panel — desktop */}
+          <div className="hidden lg:flex flex-1 lg:h-[calc(100vh-220px)]">
             {selectedPost ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                {/* Post Header */}
-                <div className="flex items-start gap-4 mb-6">
-                  <img
-                    src={selectedPost.profiles?.avatar_url || '/default-avatar.png'}
-                    alt="Avatar"
-                    className="w-12 h-12 rounded-full"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold">
-                        {selectedPost.profiles?.first_name} {selectedPost.profiles?.last_name}
-                      </span>
-                      <span className="text-sm text-gray-500">
-                        {formatDate(selectedPost.created_at)}
-                      </span>
-                    </div>
-                    <h2 className="text-xl font-bold text-gray-900 mb-2">{selectedPost.title}</h2>
-
-                    {selectedPost.tags && selectedPost.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-4">
-                        {selectedPost.tags.map(tag => (
-                          <span
-                            key={tag}
-                            className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Full Content */}
-                <div className="prose max-w-none mb-6">
-                  <p className="text-gray-700 whitespace-pre-wrap">{selectedPost.content}</p>
-                </div>
-
-                {/* Trip Summary */}
-                {selectedPost.trips && (
-                  <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                    <h3 className="font-semibold text-gray-900 mb-2">Trip Summary</h3>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-gray-500">Destination:</span>
-                        <span className="ml-2 font-medium">{selectedPost.trips.name}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-500">Duration:</span>
-                        <span className="ml-2 font-medium">
-                          {selectedPost.trips.start_date && selectedPost.trips.end_date
-                            ? `${Math.ceil((new Date(selectedPost.trips.end_date) - new Date(selectedPost.trips.start_date)) / (1000 * 60 * 60 * 24))} days`
-                            : 'N/A'
-                          }
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex items-center gap-4 mb-6">
-                  <button
-                    onClick={() => handleLike(selectedPost.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                      selectedPost.like_count > 0 ? 'text-red-600 hover:bg-red-50' : 'text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    <Heart className="w-4 h-4" />
-                    Like ({selectedPost.like_count})
-                  </button>
-
-                  <button
-                    onClick={handleCopyTrip}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <Copy className="w-4 h-4" />
-                    Copy This Trip
-                  </button>
-
-                  <button className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
-                    <Share2 className="w-4 h-4" />
-                    Share
-                  </button>
-                </div>
-
-                {/* Comments Section */}
-                <div className="border-t border-gray-200 pt-6">
-                  <h3 className="font-semibold text-gray-900 mb-4">Comments ({selectedPost.comment_count})</h3>
-
-                  {user ? (
-                    <form onSubmit={handleCommentSubmit} className="mb-6">
-                      <textarea
-                        value={newComment}
-                        onChange={(e) => setNewComment(e.target.value)}
-                        placeholder="Add a comment..."
-                        className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        rows={3}
-                      />
-                      <button
-                        type="submit"
-                        disabled={submittingComment || !newComment.trim()}
-                        className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {submittingComment ? 'Posting...' : 'Post Comment'}
-                      </button>
-                    </form>
-                  ) : (
-                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
-                      <p className="text-yellow-800">Login to interact with this post</p>
-                    </div>
-                  )}
-
-                  {/* Comments List */}
-                  {loadingComments ? (
-                    <div className="text-center py-4">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
-                    </div>
-                  ) : comments.length === 0 ? (
-                    <p className="text-gray-500 text-center py-4">No comments yet. Be the first to comment!</p>
-                  ) : (
-                    <div className="space-y-4">
-                      {comments.map((comment) => (
-                        <div key={comment.id} className="flex gap-3">
-                          <img
-                            src={comment.profiles?.avatar_url || '/default-avatar.png'}
-                            alt="Avatar"
-                            className="w-8 h-8 rounded-full flex-shrink-0"
-                          />
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="font-medium text-sm">
-                                {comment.profiles?.first_name} {comment.profiles?.last_name}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {formatDate(comment.created_at)}
-                              </span>
-                            </div>
-                            <p className="text-gray-700 text-sm">{comment.content}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+              <div className="w-full">
+                <DetailPanel
+                  post={selectedPost}
+                  comments={comments}
+                  loadingComments={loadingComments}
+                  user={user}
+                  onLike={handleLike}
+                  onComment={handleComment}
+                  onCopy={handleCopy}
+                  onShare={handleShare}
+                  likedIds={likedIds}
+                  onClose={() => setSelectedPost(null)}
+                />
               </div>
             ) : (
-              <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
-                <MessageCircle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Select a post to view details</h3>
-                <p className="text-gray-500">Click on any community post to see the full content and comments.</p>
+              <div className="flex-1 bg-white rounded-xl border border-slate-200 flex flex-col items-center justify-center text-center p-12">
+                <div className="w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center mb-4">
+                  <MapPin className="w-8 h-8 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold text-dark mb-1">Select a post</h3>
+                <p className="text-slate-400 text-sm">Click any card on the left to view full details.</p>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Mobile: bottom sheet detail panel */}
+      {showMobileDetail && selectedPost && (
+        <div className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowMobileDetail(false)} />
+          <div className="relative bg-white rounded-t-2xl max-h-[85vh] flex flex-col">
+            <div className="w-10 h-1 bg-slate-300 rounded-full mx-auto mt-3 mb-1 shrink-0" />
+            <div className="flex-1 overflow-hidden">
+              <DetailPanel
+                post={selectedPost}
+                comments={comments}
+                loadingComments={loadingComments}
+                user={user}
+                onLike={handleLike}
+                onComment={handleComment}
+                onCopy={handleCopy}
+                onShare={handleShare}
+                likedIds={likedIds}
+                onClose={() => setShowMobileDetail(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

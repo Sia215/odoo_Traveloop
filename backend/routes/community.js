@@ -53,6 +53,23 @@ router.get('/', async (req, res) => {
   return res.json({ success: true, posts: enriched, total: count || 0, page: parseInt(page), pageSize: PAGE_SIZE });
 });
 
+// GET /api/community/:id/comments
+router.get('/:id/comments', async (req, res) => {
+  const { data: rawComments } = await supabaseAdmin
+    .from('community_comments').select('id,content,created_at,user_id')
+    .eq('post_id', req.params.id).order('created_at', { ascending: true });
+
+  const commentUserIds = [...new Set((rawComments || []).map(c => c.user_id))];
+  let cProfileMap = {};
+  if (commentUserIds.length) {
+    const { data: cProfiles } = await supabaseAdmin
+      .from('profiles').select('id,first_name,last_name,avatar_url').in('id', commentUserIds);
+    (cProfiles || []).forEach(p => { cProfileMap[p.id] = p; });
+  }
+  const comments = (rawComments || []).map(c => ({ ...c, profile: cProfileMap[c.user_id] || null }));
+  return res.json({ success: true, comments });
+});
+
 // GET /api/community/:id
 router.get('/:id', async (req, res) => {
   const { data: post, error } = await supabaseAdmin
@@ -142,8 +159,10 @@ router.post('/:id/copy', verifyToken, async (req, res) => {
   const { data: post } = await supabaseAdmin
     .from('community_posts').select('trip_id').eq('id', req.params.id).single();
   if (!post?.trip_id) return res.status(404).json({ success: false, message: 'No trip linked' });
+
   const { data: src } = await supabaseAdmin.from('trips').select('*').eq('id', post.trip_id).single();
   if (!src) return res.status(404).json({ success: false, message: 'Source trip not found' });
+
   const { data: newTrip, error } = await supabaseAdmin.from('trips').insert({
     user_id: req.user.id, name: `${src.name} (Copy)`,
     description: src.description, start_date: src.start_date,
@@ -151,6 +170,32 @@ router.post('/:id/copy', verifyToken, async (req, res) => {
     cover_photo: src.cover_photo, destination_count: src.destination_count,
   }).select().single();
   if (error) return res.status(500).json({ success: false, message: error.message });
+
+  // copy itinerary days + activities
+  const { data: srcDays } = await supabaseAdmin
+    .from('itinerary_days').select('*').eq('trip_id', post.trip_id).order('day_number');
+  if (srcDays?.length) {
+    for (const day of srcDays) {
+      const { data: newDay } = await supabaseAdmin.from('itinerary_days').insert({
+        trip_id: newTrip.id, day_number: day.day_number,
+        date: day.date, city: day.city, notes: day.notes,
+      }).select().single();
+      if (newDay) {
+        const { data: acts } = await supabaseAdmin
+          .from('activities').select('*').eq('day_id', day.id);
+        if (acts?.length) {
+          await supabaseAdmin.from('activities').insert(
+            acts.map(a => ({
+              day_id: newDay.id, name: a.name, type: a.type,
+              start_time: a.start_time, end_time: a.end_time,
+              location: a.location, cost: a.cost, notes: a.notes,
+            }))
+          );
+        }
+      }
+    }
+  }
+
   await bumpCount('community_posts', req.params.id, 'copy_count', 1);
   return res.json({ success: true, trip: newTrip });
 });

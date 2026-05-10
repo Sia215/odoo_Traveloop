@@ -17,6 +17,7 @@ export default function Navbar() {
     { label: 'My Trips', path: '/trips' },
     { label: 'Explore', path: '/explore' },
     { label: 'Community', path: '/community' },
+    { label: 'Packing', path: '/packing' },
   ]
 
   useEffect(() => {

@@ -9,6 +9,7 @@ import ItineraryBuilder from './pages/ItineraryBuilder'
 import Profile from './pages/Profile'
 import MyTrips from './pages/MyTrips'
 import Community from './pages/Community'
+import PackingChecklist from './pages/PackingChecklist'
 import ProtectedRoute from './components/ProtectedRoute'
 
 export default function App() {
@@ -25,7 +26,8 @@ export default function App() {
           <Route path="/itinerary-builder/:tripId" element={<ProtectedRoute><ItineraryBuilder /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/my-trips" element={<ProtectedRoute><MyTrips /></ProtectedRoute>} />
-          <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
+          <Route path="/community" element={<Community />} />
+          <Route path="/packing" element={<ProtectedRoute><PackingChecklist /></ProtectedRoute>} />
           <Route path="/trips" element={<ProtectedRoute><MyTrips /></ProtectedRoute>} />
         </Routes>
       </UserProvider>
