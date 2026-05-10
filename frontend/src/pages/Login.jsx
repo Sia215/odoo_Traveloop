@@ -5,9 +5,13 @@ import toast from 'react-hot-toast'
 import AuthLayout from '../components/AuthLayout'
 import InputField from '../components/InputField'
 import { supabase } from '../lib/supabaseClient'
+import { useUser } from '../context/UserContext'
+
+const API = import.meta.env.VITE_API_URL
 
 export default function Login() {
   const navigate = useNavigate()
+  const { refreshUser } = useUser()
   const [form, setForm] = useState({ email: '', password: '' })
   const [errors, setErrors] = useState({})
   const [showPassword, setShowPassword] = useState(false)
@@ -29,24 +33,46 @@ export default function Login() {
     setErrors({})
     setLoading(true)
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: form.email,
-      password: form.password,
-    })
+    try {
+      // Call backend so we get the profile role back
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, password: form.password }),
+      })
+      const data = await res.json()
+      setLoading(false)
 
-    setLoading(false)
+      if (!res.ok || !data.success) {
+        const msg = data.message || data.error || 'Invalid email or password'
+        toast.error(msg)
+        setErrors({ form: msg })
+        return
+      }
 
-    if (error) {
-      console.error('Login error:', error)
-      const msg = error.message || 'Invalid email or password'
-      toast.error(msg)
-      setErrors({ form: msg })
-      return
+      // Restore Supabase client session so all subsequent API calls work
+      if (data.session) {
+        await supabase.auth.setSession({
+          access_token:  data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        })
+        // Refresh UserContext so ProtectedRoute sees the logged-in user
+        await refreshUser()
+      }
+
+      localStorage.setItem('traveloop_session', JSON.stringify(data.session))
+      toast.success('Welcome back!')
+
+      // Redirect based on role
+      if (data.user?.role === 'admin') {
+        navigate('/admin')
+      } else {
+        navigate('/dashboard')
+      }
+    } catch (err) {
+      setLoading(false)
+      toast.error('Something went wrong. Please try again.')
     }
-
-    localStorage.setItem('traveloop_session', JSON.stringify(data.session))
-    toast.success('Welcome back!')
-    navigate('/dashboard')
   }
 
   return (

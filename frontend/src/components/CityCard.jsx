@@ -23,7 +23,7 @@ export default function CityCard({ id, name, country, popularity, image_url, ind
 
   return (
     <div
-      onClick={() => navigate(`/explore?city=${id}`)}
+      onClick={() => navigate(`/activities?city=${encodeURIComponent(name)}`)}
       className="shrink-0 w-44 rounded-2xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md
         transition-all hover:-translate-y-1 border border-slate-100"
     >

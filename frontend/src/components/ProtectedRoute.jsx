@@ -6,9 +6,17 @@ export default function ProtectedRoute({ children }) {
   const [status, setStatus] = useState('loading')
 
   useEffect(() => {
+    // Check session immediately
     supabase.auth.getSession().then(({ data: { session } }) => {
       setStatus(session ? 'ok' : 'unauth')
     })
+
+    // Also listen for auth state changes (login/logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setStatus(session ? 'ok' : 'unauth')
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
   if (status === 'loading') {

@@ -255,4 +255,55 @@ router.delete('/:id/checklist/:itemId', verifyToken, async (req, res) => {
   return res.json({ success: true });
 });
 
+// ─── Trip Activities ───────────────────────────────────────────────────────────────
+
+// GET /api/trips/:tripId/activities
+router.get('/:tripId/activities', verifyToken, async (req, res) => {
+  const { tripId } = req.params;
+  const { data: trip } = await supabaseAdmin
+    .from('trips').select('id').eq('id', tripId).eq('user_id', req.user.id).single();
+  if (!trip) return res.status(404).json({ success: false, message: 'Trip not found' });
+  const { data, error } = await supabaseAdmin
+    .from('trip_activities')
+    .select('*, activities(*)')
+    .eq('trip_id', tripId);
+  if (error) return res.status(500).json({ success: false, message: error.message });
+  return res.json({ success: true, activities: data });
+});
+
+// POST /api/trips/:tripId/activities
+router.post('/:tripId/activities', verifyToken, async (req, res) => {
+  const { tripId } = req.params;
+  const { activity_id, section_id } = req.body;
+  if (!activity_id) return res.status(400).json({ success: false, message: 'activity_id required' });
+  const { data: trip } = await supabaseAdmin
+    .from('trips').select('id').eq('id', tripId).eq('user_id', req.user.id).single();
+  if (!trip) return res.status(404).json({ success: false, message: 'Trip not found' });
+  const { data: existing } = await supabaseAdmin
+    .from('trip_activities').select('id')
+    .eq('trip_id', tripId).eq('activity_id', activity_id).single();
+  if (existing) return res.json({ success: true, trip_activity: existing });
+  const { data, error } = await supabaseAdmin
+    .from('trip_activities')
+    .insert({ trip_id: tripId, activity_id, section_id: section_id || null })
+    .select().single();
+  if (error) return res.status(500).json({ success: false, message: error.message });
+  return res.status(201).json({ success: true, trip_activity: data });
+});
+
+// DELETE /api/trips/:tripId/activities/:activityId
+router.delete('/:tripId/activities/:activityId', verifyToken, async (req, res) => {
+  const { tripId, activityId } = req.params;
+  const { data: trip } = await supabaseAdmin
+    .from('trips').select('id').eq('id', tripId).eq('user_id', req.user.id).single();
+  if (!trip) return res.status(404).json({ success: false, message: 'Trip not found' });
+  const { error } = await supabaseAdmin
+    .from('trip_activities')
+    .delete()
+    .eq('trip_id', tripId)
+    .eq('activity_id', activityId);
+  if (error) return res.status(500).json({ success: false, message: error.message });
+  return res.json({ success: true });
+});
+
 module.exports = router;

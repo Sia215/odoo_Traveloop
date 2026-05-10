@@ -17,4 +17,22 @@ const verifyToken = async (req, res, next) => {
   next();
 };
 
+const verifyAdmin = async (req, res, next) => {
+  try {
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('role')
+      .eq('id', req.user.id)
+      .single();
+
+    if (!profile || profile.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Access denied. Admin only.' });
+    }
+    next();
+  } catch (err) {
+    return res.status(403).json({ success: false, message: 'Access denied.' });
+  }
+};
+
 module.exports = verifyToken;
+module.exports.verifyAdmin = verifyAdmin;

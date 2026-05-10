@@ -1,10 +1,6 @@
-const ACCESS_KEY = import.meta.env.VITE_UNSPLASH_ACCESS_KEY
+const API_KEY = import.meta.env.VITE_PEXELS_API_KEY
 const cache = {}
 
-/**
- * Fetch a travel photo URL for a given city/place name from Unsplash.
- * Results are cached in memory to avoid duplicate API calls.
- */
 export async function fetchPlacePhoto(query) {
   if (!query) return null
   const key = query.toLowerCase().trim()
@@ -12,12 +8,12 @@ export async function fetchPlacePhoto(query) {
 
   try {
     const res = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query + ' city travel')}&per_page=1&orientation=landscape`,
-      { headers: { Authorization: `Client-ID ${ACCESS_KEY}` } }
+      `https://api.pexels.com/v1/search?query=${encodeURIComponent(query + ' travel')}&per_page=1&orientation=landscape`,
+      { headers: { Authorization: API_KEY } }
     )
     if (!res.ok) return null
     const data = await res.json()
-    const url = data.results?.[0]?.urls?.regular ?? null
+    const url = data.photos?.[0]?.src?.large ?? null
     if (url) cache[key] = url
     return url
   } catch {

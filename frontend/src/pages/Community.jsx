@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, Heart, MessageCircle, Copy, Share2, MapPin, ChevronDown, SlidersHorizontal, X, Globe, Lock, Send } from 'lucide-react'
+import { Search, Heart, MessageCircle, Copy, Share2, MapPin, ChevronDown, SlidersHorizontal, X, Globe, Lock, Send, Plus } from 'lucide-react'
 import { supabase } from '../lib/supabaseClient'
 import { useUser } from '../context/UserContext'
 import Navbar from '../components/Navbar'
+import CreatePostModal from '../components/CreatePostModal'
 import toast from 'react-hot-toast'
+
+const CATEGORIES = ['All', 'General', 'Trip Review', 'Tips', 'Food', 'Adventure', 'Budget Travel']
 
 const API = import.meta.env.VITE_API_URL
 
@@ -247,6 +250,8 @@ export default function Community() {
   const { user } = useUser()
   const [posts, setPosts] = useState([])
   const [selectedPost, setSelectedPost] = useState(null)
+  const [showModal, setShowModal] = useState(false)
+  const [activeCategory, setActiveCategory] = useState('All')
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -265,6 +270,7 @@ export default function Community() {
   const searchRef = useRef(search)
   const tagRef = useRef(tag)
   const sortRef = useRef(sort)
+  const categoryRef = useRef(activeCategory)
 
   const fetchPosts = useCallback(async (reset = false) => {
     if (reset) { setLoading(true); pageRef.current = 1 }
@@ -274,6 +280,7 @@ export default function Community() {
       const params = new URLSearchParams({ page: p, limit: 10, sort: sortMap[sortRef.current] })
       if (searchRef.current) params.set('search', searchRef.current)
       if (tagRef.current) params.set('tag', tagRef.current)
+      if (categoryRef.current && categoryRef.current !== 'All') params.set('category', categoryRef.current)
       const res = await fetch(`${API}/api/community?${params}`)
       const data = await res.json()
       if (data.success) {
@@ -290,8 +297,9 @@ export default function Community() {
     searchRef.current = search
     tagRef.current = tag
     sortRef.current = sort
+    categoryRef.current = activeCategory
     fetchPosts(true)
-  }, [search, tag, sort, fetchPosts])
+  }, [search, tag, sort, activeCategory, fetchPosts])
 
   // infinite scroll
   const hasMoreRef = useRef(hasMore)
@@ -387,6 +395,10 @@ export default function Community() {
     toast.success('Link copied to clipboard!')
   }
 
+  const handlePostCreated = (newPost) => {
+    setPosts(prev => [newPost, ...prev])
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
@@ -396,8 +408,16 @@ export default function Community() {
         <div className="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-white/10" />
         <div className="absolute -bottom-20 -left-10 w-72 h-72 rounded-full bg-white/10" />
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          <h1 className="text-3xl font-bold text-white mb-1">Community</h1>
-          <p className="text-teal-100 text-sm mb-6">Explore trips shared by travelers</p>
+          <div className="flex items-start justify-between mb-1">
+            <h1 className="text-3xl font-bold text-white">Community</h1>
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-2 bg-[#F97316] hover:bg-orange-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition shadow-sm"
+            >
+              <Plus size={16} /> Share Experience
+            </button>
+          </div>
+          <p className="text-teal-100 text-sm mb-6">Share your travel experiences with fellow travelers</p>
 
           {/* Search + Filter bar */}
           <div className="flex flex-wrap gap-2">
@@ -430,6 +450,26 @@ export default function Community() {
                 <option value="most_copied">Most Copied</option>
               </select>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Category tabs */}
+      <div className="bg-white border-b border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex gap-2 overflow-x-auto py-3 scrollbar-hide">
+            {CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`shrink-0 px-4 py-1.5 rounded-full text-[13px] font-medium transition border
+                  ${activeCategory === cat
+                    ? 'bg-[#0D9488] text-white border-[#0D9488]'
+                    : 'bg-white text-[#1E293B] border-slate-200 hover:border-[#0D9488] hover:text-[#0D9488]'}`}
+              >
+                {cat}
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -518,6 +558,12 @@ export default function Community() {
           </div>
         </div>
       )}
+
+      <CreatePostModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        onPostCreated={handlePostCreated}
+      />
     </div>
   )
 }

@@ -15,7 +15,7 @@ export default function Navbar() {
   const navLinks = [
     { label: 'Home', path: '/dashboard' },
     { label: 'My Trips', path: '/trips' },
-    { label: 'Explore', path: '/explore' },
+    { label: 'Explore', path: '/activities' },
     { label: 'Community', path: '/community' },
     { label: 'Packing', path: '/packing' },
   ]

@@ -14,7 +14,7 @@ async function bumpCount(table, id, field, delta) {
 
 // GET /api/community
 router.get('/', async (req, res) => {
-  const { search = '', tag = '', sort = 'recent', page = 1 } = req.query;
+  const { search = '', tag = '', sort = 'recent', page = 1, category = '' } = req.query;
   const from = (parseInt(page) - 1) * PAGE_SIZE;
   const to   = from + PAGE_SIZE - 1;
 
@@ -24,11 +24,14 @@ router.get('/', async (req, res) => {
       'id,title,content,tags,like_count,comment_count,copy_count,created_at,trip_id,user_id',
       { count: 'exact' }
     )
-    .eq('is_public', true)
-    .range(from, to);
+    .eq('is_public', true);
 
-  if (search) query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
-  if (tag)    query = query.contains('tags', [tag]);
+  if (search)                          query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+  if (tag)                             query = query.contains('tags', [tag]);
+  if (category && category !== 'All') {
+    // only filter by category if the column exists — skip silently if not
+    try { query = query.eq('category', category) } catch (_) {}
+  }
 
   switch (sort) {
     case 'liked':     query = query.order('like_count',    { ascending: false }); break;
@@ -37,8 +40,13 @@ router.get('/', async (req, res) => {
     default:          query = query.order('created_at',    { ascending: false });
   }
 
+  query = query.range(from, to);
+
   const { data: posts, error, count } = await query;
-  if (error) return res.status(500).json({ success: false, message: error.message });
+  if (error) {
+    console.error('GET /api/community error:', error.message);
+    return res.status(500).json({ success: false, message: error.message });
+  }
 
   // attach profile info
   const userIds = [...new Set((posts || []).map(p => p.user_id))];

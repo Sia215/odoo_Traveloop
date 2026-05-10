@@ -36,6 +36,7 @@ router.post('/register', async (req, res) => {
     country: country || null,
     additional_info: additional_info || null,
     avatar_url: avatar_url || null,
+    role: 'user',
   });
 
   if (profileError) {
@@ -60,7 +61,18 @@ router.post('/login', async (req, res) => {
     return res.status(401).json({ success: false, message: 'Invalid email or password' });
   }
 
-  return res.json({ success: true, session: data.session, user: data.user });
+  // Fetch profile to get role for redirect
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('id, first_name, last_name, email, role, avatar_url')
+    .eq('id', data.user.id)
+    .single();
+
+  return res.json({
+    success: true,
+    session: data.session,
+    user: profile || data.user,
+  });
 });
 
 // POST /api/auth/logout
